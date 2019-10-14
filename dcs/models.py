@@ -1,13 +1,14 @@
 #! /usr/bin/env python
-from peewee import Model,SqliteDatabase,TextField,IntegerField,DoubleField
+from peewee import Model,SqliteDatabase,TextField,IntegerField,DoubleField,ForeignKeyField
 import json
 from pathlib import Path
 from functools import reduce,partial
 from bs4 import BeautifulSoup
 from astropy.coordinates import SkyCoord
 import astropy.units as u
+from .FAOR import FAOR as dcsFAOR
 
-DB_TYPE_MAP = {'int':IntegerField,'float':DoubleField,'str':TextField}
+DB_TYPE_MAP = {'int':IntegerField,'float':DoubleField,'str':TextField,'foreign':ForeignKeyField}
 
 def generate_field(key, units, options):
     '''Generate database Field objects for each key'''
@@ -18,6 +19,12 @@ def generate_field(key, units, options):
     field = DB_TYPE_MAP[ftype]
     opt = options.get('_ALL_').copy()
     opt.update(options.get(key,{}))  # override options for field
+
+    # connect foreign key to model
+    if ftype == 'foreign':
+        model = globals()[opt['model']]
+        opt['model'] = model
+    
     return field(**opt)
 
 
@@ -79,6 +86,14 @@ def combine_MIS_data(legnum,dkeys,attrs,meta):
     
     return row
 
+def combine_FAOR_data(config,run,meta):
+    row = meta.copy()
+    row.update(config)
+    row.update(run)
+    row['ckey'] = '%s_%s' % (row['fkey'],row['AORID'])    
+
+    return row
+
 def AOR_to_rows(filename, aorcfg):
     """Converts AOR xml files to rows for DB ingestion"""
     with open(filename,'r') as f:
@@ -96,6 +111,9 @@ def AOR_to_rows(filename, aorcfg):
 
     # copy ProposalID to planID
     meta['planID'] = meta['ProposalID']
+
+    # save filename
+    meta['FILENAME'] = str(Path(filename).resolve())
 
     # Get requests, and pull xml keys
     requests = aor.vector.find_all('request')
@@ -134,6 +152,9 @@ def MIS_to_rows(filename, miscfg):
     # Get flight info
     meta = {"FlightPlan":mis['id'],"Series":'_'.join(mis['id'].split('_')[0:-1])}
 
+    # save filename
+    meta['FILENAME'] = str(Path(filename).resolve())
+
     # Get legs, and pull xml keys
     legs = mis.legs.find_all('leg')
     legnums = (leg['id'] for leg in legs)
@@ -156,6 +177,29 @@ def MIS_to_rows(filename, miscfg):
 
     return list(rows)
 
+def FAOR_to_rows(filename, faorcfg):
+    """Converts FAOR file to rows for DB ingestion"""
+    faor = dcsFAOR.read(filename)
+
+    # Get meta data
+    meta = {key:faor.preamble[key] for key in json.loads(faorcfg['meta_keys'])}
+    meta['FILENAME'] = str(Path(filename).resolve())
+    meta['planID'] = '_'.join(faor.config[0]['AORID'].split('_')[0:-1])
+    meta['fkey'] = 'Leg%s_%s' % (meta['Leg'],meta['Flight'])
+
+    # Get config data from each config block
+    config = map(lambda c: {k:c.get(k,None) for k in json.loads(faorcfg['config_keys'])}, faor.config)
+
+    # Get run data from each run block
+    run = map(lambda r: {k:r.get(k,None) for k in json.loads(faorcfg['run_keys'])}, faor.run)
+
+    # combine all xml data into row
+    row_func = partial(combine_FAOR_data,meta=meta)
+    rows = map(row_func,config,run)
+
+    return list(rows)
+    
+
 def insert_rows(db, rows, cls):
     """Insert rows to database"""
     with db.atomic():
@@ -165,7 +209,7 @@ def replace_rows(db, rows, cls):
     with db.atomic():
         cls.replace_many(rows).execute()
 
-def ModelFactory(name, config, db, register=False):
+def ModelFactory(name, config, db, register=True):
     '''Generate peewee Model on the fly'''
     
     # first make meta class
@@ -203,7 +247,8 @@ def ModelFactory(name, config, db, register=False):
 
 
 CONVERTER_FUNCS = {'AOR':AOR_to_rows,
-                   'MIS':MIS_to_rows}
+                   'MIS':MIS_to_rows,
+                   'FAOR':FAOR_to_rows}
 
 if __name__ == '__main__':
     from configparser import ConfigParser
@@ -211,6 +256,10 @@ if __name__ == '__main__':
     c.read('models.cfg')
 
 
+    faor = dcsFAOR.read('../test/Leg13__90_0062_Alpha_Cet.faor')
+
     #AOR_to_rows('../test/07_0193.aor',c['AOR'])
 
-    MIS_to_rows('../test/201909_HA_FABIO.misxml',c['MIS'])
+    #MIS_to_rows('../test/201909_HA_FABIO.misxml',c['MIS'])
+
+    

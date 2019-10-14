@@ -94,12 +94,15 @@ class AORTEST(Model):
 def get_mission(stuff):
     print(stuff)
     
-def initialize_database(mcfg, models=('AOR','MIS')):
+def initialize_database(mcfg, models=('AOR','MIS','FAOR')):
     """Initialize database, create models dynamically, and register models globally"""
     db_file = mcfg['DEFAULT']['db_file']
     db = SqliteDatabase(db_file)
 
     # generate models
+    #   do not register FAOR in dcs namespace
+    #register = (False if model == 'FAOR' else True for model in models)
+    #mods = [dcs.models.ModelFactory(name, mcfg, db, reg) for name,reg in zip(models,register)]
     mods = [dcs.models.ModelFactory(name, mcfg, db) for name in models]
 
     # bind database to all models
@@ -301,6 +304,9 @@ def main():
     rows = MIS.to_rows('test/201909_HA_FABIO.misxml',miscfg)
     MIS.replace_rows(db,rows)
 
+    faorcfg = mcfg['FAOR']
+    rows = FAOR.to_rows('test/Leg13__90_0062_Alpha_Cet.faor',faorcfg)
+    FAOR.replace_rows(db,rows)
 
 if __name__ == '__main__':
     main()
