@@ -101,14 +101,20 @@ def combine_FAOR_data(config,run,meta):
 def combine_AORSEARCH_data(row):
     aorid = row['AORID'].replace('ViewPlan','').strip()
     row['AORID'] = aorid
+    row['planID'] = '_'.join(aorid.split('_')[0:-1])
 
     flightplans = row['FlightPlanIDs']
+    if flightplans:
+        flightplans = ', '.join(flightplans.replace('[OB]','').split())
+
+    '''
     if isinstance(flightplans,str):
-        flightplans = flightplans.replace('[OB]','').split()
+        flightplans = ', '.join(flightplans.replace('[OB]','').split())
     elif np.isnan(flightplans):
         flightplans = ''
     else:
         flighplans = ''
+    '''
     row['FlightPlanIDs'] = flightplans
 
     return row
@@ -234,6 +240,7 @@ def AORSEARCH_to_frame(filename, aorsearchcfg):
     htable = htable.parent.parent
     table = read_html(str(htable))[0]
     table = table[json.loads(aorsearchcfg['data_keys'])]
+    table['FILENAME'] = str(filename)
     return table
     
 
@@ -246,6 +253,7 @@ def AORSEARCH_to_rows(filenames, aorsearchcfg):
     rows = map(frame_func, filenames)
     rows = filter(lambda x: x is not None, rows)
     rows = concat(rows)
+    rows.fillna('', inplace=True)
     rows = rows.to_dict('records')
 
     #row_func = partial(combine_AORSEARCH_data)
@@ -274,6 +282,7 @@ def ModelFactory(name, config, db, register=True):
     keys = map(json.loads, keys)
     keys = reduce(lambda x,y:x+y, keys)
 
+    print(name)
     units = json.loads(config[name]['data_units'])
     options = json.loads(config[name]['data_options'])
     
@@ -301,7 +310,8 @@ def ModelFactory(name, config, db, register=True):
 
 CONVERTER_FUNCS = {'AOR':AOR_to_rows,
                    'MIS':MIS_to_rows,
-                   'FAOR':FAOR_to_rows}
+                   'FAOR':FAOR_to_rows,
+                   'AORSEARCH':AORSEARCH_to_rows}
 
 if __name__ == '__main__':
     from configparser import ConfigParser
@@ -314,9 +324,16 @@ if __name__ == '__main__':
     #AOR_to_rows('../test/07_0193.aor',c['AOR'])
 
     #MIS_to_rows('../test/201909_HA_FABIO.misxml',c['MIS'])
-    rows = AORSEARCH_to_rows(['/home/msgordo1/.astropy/cache/DCS/astropy/download/py3/2a06a89e01eb342562a6c9b578c771bb',
-                              '/home/msgordo1/.astropy/cache/DCS/astropy/download/py3/192432211ebc8069df5c3f84247b7d3b',
-                              '/home/msgordo1/.astropy/cache/DCS/astropy/download/py3/7cb0d37a6d387c20148bb1c48f76b7e8',
-                              '/home/msgordo1/.astropy/cache/DCS/astropy/download/py3/4a012c6e452ab87cbe8117ee118c603e'],
+    #rows = AORSEARCH_to_rows(['/home/msgordo1/.astropy/cache/DCS/astropy/download/py3/2a06a89e01eb342562a6c9b578c771bb',
+    #                          '/home/msgordo1/.astropy/cache/DCS/astropy/download/py3/192432211ebc8069df5c3f84247b7d3b',
+    #                          '/home/msgordo1/.astropy/cache/DCS/astropy/download/py3/7cb0d37a6d387c20148bb1c48f76b7e8',
+    #                          '/home/msgordo1/.astropy/cache/DCS/astropy/download/py3/4a012c6e452ab87cbe8117ee118c603e'],
+    #                         c['AORSEARCH'])
+    rows = AORSEARCH_to_rows(['../test/AORSEARCH1.html','../test/AORSEARCH2.html','../test/AORSEARCH3.html','../test/AORSEARCH4.html'],
                              c['AORSEARCH'])
+    #rows = AORSEARCH_to_rows(['/home/gordon/.astropy/cache/DCS/astropy/download/py3/9eebcae65a2a06f1c1d810d87b776a49',
+    #                          '/home/gordon/.astropy/cache/DCS/astropy/download/py3/02e4ff2f922f1021029f5154cdfdf465',
+    #                          '/home/gordon/.astropy/cache/DCS/astropy/download/py3/74fb34e0c12c46acd946027e694d1472',
+    #                          '/home/gordon/.astropy/cache/DCS/astropy/download/py3/a72797468df001ca71dea3a3598b70c5'],
+    #                         c['AORSEARCH'])
     print(rows)

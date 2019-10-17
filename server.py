@@ -94,7 +94,7 @@ class AORTEST(Model):
 def get_mission(stuff):
     print(stuff)
     
-def initialize_database(mcfg, models=('AOR','MIS','FAOR')):
+def initialize_database(mcfg, models=('AOR','MIS','FAOR','AORSEARCH')):
     """Initialize database, create models dynamically, and register models globally"""
     db_file = mcfg['DEFAULT']['db_file']
     db = SqliteDatabase(db_file)
@@ -297,16 +297,27 @@ def main():
     #config = ConfigParser()
     #config.read(args.cfg)
     aorcfg = mcfg['AOR']
+    '''
     rows = AOR.to_rows('test/07_0130.aor',aorcfg)
+    print('Digest AOR')
     AOR.replace_rows(db,rows)
     
     miscfg = mcfg['MIS']
     rows = MIS.to_rows('test/201909_HA_FABIO.misxml',miscfg)
+    print('Digest MIS')
     MIS.replace_rows(db,rows)
 
     faorcfg = mcfg['FAOR']
     rows = FAOR.to_rows('test/Leg13__90_0062_Alpha_Cet.faor',faorcfg)
+    print('Digest FAOR')
     FAOR.replace_rows(db,rows)
+
+    '''
+    aorsearchcfg = mcfg['AORSEARCH']
+    rows = AORSEARCH.to_rows(['test/AORSEARCH1.html','test/AORSEARCH2.html','test/AORSEARCH3.html','test/AORSEARCH4.html'],
+                             aorsearchcfg)
+    print('Digest AORSEARCH')
+    AORSEARCH.replace_rows(db,rows)
 
 if __name__ == '__main__':
     main()
