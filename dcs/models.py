@@ -6,7 +6,11 @@ from functools import reduce,partial
 from bs4 import BeautifulSoup
 from astropy.coordinates import SkyCoord
 import astropy.units as u
-from .FAOR import FAOR as dcsFAOR
+from FAOR import FAOR as dcsFAOR
+#from .FAOR import FAOR as dcsFAOR
+from collections import deque
+from pandas import read_html, concat
+import numpy as np
 
 DB_TYPE_MAP = {'int':IntegerField,'float':DoubleField,'str':TextField,'foreign':ForeignKeyField}
 
@@ -93,6 +97,22 @@ def combine_FAOR_data(config,run,meta):
     row['ckey'] = '%s_%s' % (row['fkey'],row['AORID'])    
 
     return row
+
+def combine_AORSEARCH_data(row):
+    aorid = row['AORID'].replace('ViewPlan','').strip()
+    row['AORID'] = aorid
+
+    flightplans = row['FlightPlanIDs']
+    if isinstance(flightplans,str):
+        flightplans = flightplans.replace('[OB]','').split()
+    elif np.isnan(flightplans):
+        flightplans = ''
+    else:
+        flighplans = ''
+    row['FlightPlanIDs'] = flightplans
+
+    return row
+    
 
 def AOR_to_rows(filename, aorcfg):
     """Converts AOR xml files to rows for DB ingestion"""
@@ -198,6 +218,39 @@ def FAOR_to_rows(filename, faorcfg):
     rows = map(row_func,config,run)
 
     return list(rows)
+
+def AORSEARCH_to_frame(filename, aorsearchcfg):
+    """Convert AORSEARCH result to pandas frame"""
+    with open(filename,'r') as f:
+        soup = BeautifulSoup(f.read(),'lxml')
+    ths = soup.find_all('th')
+    # this table should be unique
+    try:
+        htable = list(filter(lambda x: 'NAIF_ID' in x.text,ths))[0]
+    except IndexError:
+        # no aorids found
+        return None
+
+    htable = htable.parent.parent
+    table = read_html(str(htable))[0]
+    table = table[json.loads(aorsearchcfg['data_keys'])]
+    return table
+    
+
+def AORSEARCH_to_rows(filenames, aorsearchcfg):
+    """Converts AORSEARCH result pages for DB ingestion"""
+    if isinstance(filenames,str):
+        filenames = [filenames]
+
+    frame_func = partial(AORSEARCH_to_frame, aorsearchcfg=aorsearchcfg)
+    rows = map(frame_func, filenames)
+    rows = filter(lambda x: x is not None, rows)
+    rows = concat(rows)
+    rows = rows.to_dict('records')
+
+    #row_func = partial(combine_AORSEARCH_data)
+    rows = map(combine_AORSEARCH_data,rows)
+    return list(rows)
     
 
 def insert_rows(db, rows, cls):
@@ -256,10 +309,14 @@ if __name__ == '__main__':
     c.read('models.cfg')
 
 
-    faor = dcsFAOR.read('../test/Leg13__90_0062_Alpha_Cet.faor')
+    #faor = dcsFAOR.read('../test/Leg13__90_0062_Alpha_Cet.faor')
 
     #AOR_to_rows('../test/07_0193.aor',c['AOR'])
 
     #MIS_to_rows('../test/201909_HA_FABIO.misxml',c['MIS'])
-
-    
+    rows = AORSEARCH_to_rows(['/home/msgordo1/.astropy/cache/DCS/astropy/download/py3/2a06a89e01eb342562a6c9b578c771bb',
+                              '/home/msgordo1/.astropy/cache/DCS/astropy/download/py3/192432211ebc8069df5c3f84247b7d3b',
+                              '/home/msgordo1/.astropy/cache/DCS/astropy/download/py3/7cb0d37a6d387c20148bb1c48f76b7e8',
+                              '/home/msgordo1/.astropy/cache/DCS/astropy/download/py3/4a012c6e452ab87cbe8117ee118c603e'],
+                             c['AORSEARCH'])
+    print(rows)
