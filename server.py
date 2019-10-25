@@ -11,7 +11,7 @@ from collections import OrderedDict,defaultdict
 from pathlib import Path
 from peewee import Model,SqliteDatabase,TextField,IntegerField,DoubleField
 import json
-import dcs.models
+from dcs import DBmodels, DCS
 
 AOR_META_KEYS = ('ProposalID','ProposalTitle','Category','PI')
 REQUEST_KEYS = ('title',)
@@ -89,6 +89,11 @@ class AORTEST(Model):
 '''
 
 
+def jsonify(func):
+    def wrapped(*args,**kwargs):
+        return json.dumps(func(*args,**kwargs))
+    return wrapped
+
 
 @eel.expose
 def get_mission(stuff):
@@ -103,7 +108,7 @@ def initialize_database(mcfg, models=('AOR','MIS','FAOR','AORSEARCH')):
     #   do not register FAOR in dcs namespace
     #register = (False if model == 'FAOR' else True for model in models)
     #mods = [dcs.models.ModelFactory(name, mcfg, db, reg) for name,reg in zip(models,register)]
-    mods = [dcs.models.ModelFactory(name, mcfg, db) for name in models]
+    mods = [DBmodels.ModelFactory(name, mcfg, db) for name in models]
 
     # bind database to all models
     #db.bind([AOR])
@@ -259,18 +264,107 @@ def aor_to_rows(filename, aorcfg):
     #rows = map(validate,rows)
     return list(rows)
 
+@eel.expose
+def getAOR(aorID):
+    if len(aorID.split('_')) == 2:
+        # this is a planID
+        return getAORs_by_planID(aorID)
+    try:
+        aor = AOR.get(AOR.aorID==aorID)
+    except:
+        # check DCS
+        planID = '_'.join(aorID.split('_')[:-1])
+        cfile = dcs.getObsPlan(planID)
+        if cfile is None:
+            return None
+        return getAOR(aorID)
+        
+    return json.dumps(aor.__data__)
 
+@eel.expose
+def getAORs_by_planID(planID):
+    aors = AOR.select().where(AOR.planID==planID)
+    aors = (aor.__data__ for aor in aors)
+    aors = list(aors)
+    if not aors:
+        # check DCS
+        cfile = dcs.getObsPlan(planID)
+        if cfile is None:
+            return None
+        return getAORs_by_planID(planID)
+    
+    return json.dumps(list(aors))
+
+@eel.expose
+def getAORs_by_ObsBlk(ObsBlk):
+    aors = AOR.select().where(AOR.ObsBlk==ObsBlk).order_by(AOR.order,AOR.aorID)
+    aors = (aor.__data__ for aor in aors)
+    aors = list(aors)
+    if not aors:
+        # check DCS
+        planID = '_'.join(ObsBlk.split('_')[1:-1])
+        cfile = dcs.getObsPlan(planID)
+        if cfile is None:
+            return None
+        return getAORs_by_ObsBlk(ObsBlk)
+    
+    return json.dumps(list(aors))
+
+@eel.expose
+def getFlightSeries(series):
+    #flights = MIS.select().where(MIS.Series==series)
+    #flights = {flight.FlightPlan for flight in flights}
+    return dcs.getFlightSeries(series)
+    
+
+
+@eel.expose
+def getFlightPlan(FlightPlan):
+    legs = MIS.select().where(MIS.FlightPlan==FlightPlan).order_by(MIS.Leg)
+    legs = (leg.__data__ for leg in legs)
+    if not legs:
+        cfile = dcs.getFlightPlan(FlightPlan)
+        if cfile is None:
+            return None
+        
+    return json.dumps(list(legs))
+
+@eel.expose
+def getFAORs_by_aorID(aorID):
+    faors = FAOR.select().where(FAOR.AORID==aorID)
+    faors = (faor.__data__ for faor in faors)
+    return json.dumps(list(faors))
+
+@eel.expose
+def getFAORs_by_target(target):
+    faors = FAOR.select().where(FAOR.TARGET==target)
+    faors = (faor.__data__ for faor in faors)
+    return json.dumps(list(faors))
+
+
+def register_models(dcs):
+    """Register active DB models in DCS instance globally"""
+    active_models = dcs.get_active_models()
+    if active_models:
+        for name,model in active_models.items():
+            globals()[name] = model
+
+    # finally, register dcs
+    globals()['dcs'] = dcs
+
+    return active_models
+    
 
 def main():
     parser = argparse.ArgumentParser(description='Run server and startup SOFIA Mission Toolbox')
-    parser.add_argument('-cfg',type=str,default='config.cfg',help='Server config file (default=config.cfg)')
-    parser.add_argument('-mcfg',type=str,default='dcs/models.cfg',help='Model config file (default=dcs/models.cfg)')
+    parser.add_argument('-scfg',type=str,default='server.cfg',help='Server config file (default=server.cfg)')
+    parser.add_argument('-mcfg',type=str,default='dcs/DBmodels.cfg',help='Model config file (default=dcs/DBmodels.cfg)')
     args = parser.parse_args()
 
     # Read in options
     '''
     config = ConfigParser()
-    config.read(args.cfg)
+    config.read(args.scfg)
     eelcfg = config['EEL']  # eel config section
     
     eel.init(eelcfg['webdir'])
@@ -280,10 +374,23 @@ def main():
               mode=eelcfg['mode'],
               jinja=eelcfg['jinja'])
     '''
+
+
     mcfg = ConfigParser()
     mcfg.read(args.mcfg)
 
-    db = initialize_database(mcfg)
+    dcs = DCS.DCS(modelcfg=mcfg)
+    dcs._force_db_sync()
+    exit()
+    #db = dcs.db
+    #register_models(dcs)
+
+    res = dcs.getAOR('07_0130')
+    print(res)
+    exit()
+
+    '''
+    #db = initialize_database(mcfg)
     
     #exit()
     #mconfig = ConfigParser()
@@ -296,12 +403,15 @@ def main():
 
     #config = ConfigParser()
     #config.read(args.cfg)
-    aorcfg = mcfg['AOR']
     '''
+
+    '''
+    # TESTING BLOCK1
+    aorcfg = mcfg['AOR']
     rows = AOR.to_rows('test/07_0130.aor',aorcfg)
     print('Digest AOR')
     AOR.replace_rows(db,rows)
-    
+
     miscfg = mcfg['MIS']
     rows = MIS.to_rows('test/201909_HA_FABIO.misxml',miscfg)
     print('Digest MIS')
@@ -312,12 +422,32 @@ def main():
     print('Digest FAOR')
     FAOR.replace_rows(db,rows)
 
-    '''
     aorsearchcfg = mcfg['AORSEARCH']
-    rows = AORSEARCH.to_rows(['test/AORSEARCH1.html','test/AORSEARCH2.html','test/AORSEARCH3.html','test/AORSEARCH4.html'],
+    rows = AORSEARCH.to_rows(['test/AORSEARCH1.html','test/AORSEARCH2.html',
+                              'test/AORSEARCH3.html','test/AORSEARCH4.html'],
                              aorsearchcfg)
     print('Digest AORSEARCH')
     AORSEARCH.replace_rows(db,rows)
+    #'''
+
+    # TESTING BLOCK2
+    res = getAOR('07_0149_1')
+    print(res)
+    res = getAORs_by_planID('07_0225')
+    print(res)
+    res = getFlightPlan('201909_HA_FABIO')
+    print(res)
+    res = getAORs_by_ObsBlk('OB_07_0225_08')
+    print(res)
+    res = getFAORs_by_aorID('90_0062_1')
+    print(res)
+    res = getFAORs_by_target('Alpha Cet')
+    print(res)
+    res = getFlightSeries('201909_HA')
+    print(res)
+    #'''
+    
+    
 
 if __name__ == '__main__':
     main()

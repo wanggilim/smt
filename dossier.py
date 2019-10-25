@@ -1,0 +1,441 @@
+#! /usr/bin/env python
+#####################################################
+##
+## dossier.py
+## SOFIA Dossier Tool
+## Author: Michael S. Gordon (mgordon@sofia.usra.edu)
+##
+######################################################
+from dcs import DCS
+import argparse
+from astropy.table import join,vstack,Column, Table
+from astropy.table.row import Row
+from collections import deque
+from pathlib import Path
+import subprocess
+#import TEX
+from shutil import copy
+from astropy.utils.console import ProgressBar
+from functools import partial
+from configparser import ConfigParser
+
+def get_raw_leg(leg,dcs,odir,proposal=False):
+    """Get raw aor from DCS
+
+    Download raw AOR and (optionally) proposal pdf files from DCS.
+
+    Args:
+        leg (Row): MIS table row for flight leg.
+        d (DCS): DCS instance.
+        odir (str): str or Path to output directory.
+        proposal (bool): If True, download proposal pdf.
+
+    Returns:
+        leg (Row): Return input table row.
+    
+    """
+    if not leg['AOR']:
+        return None
+
+    #msg = '  Retrieving AOR %s for %s' % (leg['AOR'],leg['LegName'])
+    odir = Path(odir)
+    cfile = dcs.getObsPlan(leg['AOR'],raw=True)
+    outfile = '%s.aor'%leg['AOR']
+    copy(cfile,odir/outfile)
+
+    if proposal:
+        #msg = '\n  Retrieving proposal for AOR %s' % (leg['AOR'])
+        cfile = dcs.getProposal(leg['AOR'])
+        outfile = '%s.pdf'%leg['AOR']
+        copy(cfile,odir/outfile)
+
+    return leg
+    
+
+def get_raw_AORs(flightid, odir,
+                 dcs=None, refresh_cache=False,
+                 proposal=False,
+                 local=None):
+    """Get raw AORs from DCS by mission ID
+
+    Download raw AORs for all legs of a flight.
+
+    Args:
+        flightid (str): FlightID e.g. 201909_HA_FEMKE
+        odir (str): str or Path to output directory.
+        d (DCS): DCS instance.  If None, a new one will be generated (possibly requiring login).
+        refresh_cache (bool): If True, refresh data from DCS.  If False, use cache first.
+        proposal (bool): If True, download proposal pdf.
+        local (str): str or Path to local .mis file.
+
+    Returns:
+        mis (Table): MIS table.
+    
+    """
+    odir = Path(odir)
+    odir.mkdir(parents=True,exist_ok=True)
+
+    if not dcs:
+        # initialize DCS link
+        dcs = DCS.DCS(refresh_cache=refresh_cache)
+    
+    # get MIS table for flightid
+    mis = dcs.getFlightPlan(flightid,local=local)
+
+    if mis is None:
+        raise ValueError('No Matching MIS found for Flight Plan %s' % flightid)
+
+    
+    # for each leg, download AOR, proposals
+    get_func = partial(get_raw_leg,dcs=dcs,odir=odir,proposal=proposal)
+
+    print('Downloading AORs...')
+    ProgressBar.map(get_func,mis,
+                    multiprocess=False)
+    print()
+    return mis
+
+
+def get_leg(leg, dcs):
+    """Get AOR for input leg
+
+    Download AOR for flight leg.
+
+    Args:
+        leg (Row): MIS table row for flight leg.
+        d (DCS): DCS instance.
+
+    Returns:
+        aor (Table): AOR table.
+    
+    """
+    if not leg['AOR']:
+        return None
+    
+    #print('  Retrieving AOR %s for %s' % (leg['AOR'],leg['LegName']))
+    aor = dcs.getObsPlan(leg['AOR'],obsblock=leg['ObsBlk'])
+
+    # Update meta data for easier retrieval of PI info later by LEG
+    aor.meta['LEG%iPI'%leg['Leg']] = aor.meta['PI']
+    #print('    ObsBlk: %s'%leg['ObsBlk'])
+
+    return aor
+
+
+def generate_dossier(flightid, odir,
+                     dcs=None, refresh_cache=False,
+                     version='',
+                     template='template.tex',
+                     local=None,
+                     config=None,
+                     alias=None,
+                     guide=False,
+                     faor=False,
+                     posfiles=False,
+                     reg=False,
+                     sio=False,
+                     savefits=False,
+                     irsurvey=None,
+                     writetex=True):
+    """Generate dossier from flightid
+
+    Generate dossier from template for given flightid.
+
+    Args:
+        flightid (str): Mission/flight ID (e.g. 201909_HA_FABIO).
+        odir (str): Output directory.
+        dcs (DCS): DCS instance.  If none, a new one will be generated (possibly requiring login).
+        refresh_cache (bool): If True, refresh data from DCS.  If False, use cache first.
+        version (str): Version or revision number/letter for dossier.
+        template (str): Template .tex file with jinja2 render syntax.
+        local (str): Specify local directory with .mis files rather than pull them from DCS.
+        config (str): Config file with options for ObsBlks/Legs in dossier.
+        alias (dict): Dictionary of ObsBlks to replace or alias (e.g. for dummy FORCAST cal files).
+        guide (bool): If True, add guide stars to overlays.
+        faor (bool): If True, process FORCAST configurations from .faor files.  These files must have been generated from companion 'planner.py' script and must exist in an 'faors/' folder within the output directory structure.
+        posfiles (bool): If True, pull down .pos files from DCS.
+        reg (bool): If True, generate DS9 region files of overlays.
+        sio (bool): If True, overwrite ObsBlk comments with SIO instructions (HAWC+ only).
+        savefits (bool): If True, copy SkyView .fits files to local directory structure.
+        irsurvey (str): Survey in SkyView imaging catalogs to download additional .fits images. This can be any imaging archive known to SkyView.  Requires savefits=True.
+        writetex (bool): If False, suppress .tex file generation.  Mostly for testing.
+
+    Returns:
+        output (Path): Path to output .tex file.
+    """
+
+    # create output directory
+    odir = Path(odir)
+    odir.mkdir(parents=True,exist_ok=True)
+
+    if not dcs:
+        # initialize DCS link
+        dcs = DCS(refresh_cache=refresh_cache)
+
+    if 'ALT' in flightid:
+        name = '_'.join(flightid.split('_')[-2:])
+    else:
+        name = flightid.split('_')[-1]
+    title = flightid.replace('_','\_')
+    if version != '':
+        title = '%s Rev %s' % (title,version)
+    
+    # get MIS table for flightid
+    mis = dcs.getFlightPlan(flightid, local=local)
+
+    if mis is None:
+        raise ValueError('No Matching MIS found for Flight Plan %s' % flightid)
+
+    if alias:
+        for leg in mis:
+            # apply aliases, if any
+            if leg['ObsBlk'] in alias:
+                newblk = alias[leg['ObsBlk']]
+                leg['ObsBlk'] = newblk
+                leg['AOR'] = '_'.join(newblk.split('_')[1:3])
+    
+    #print('Retrieving MIS file for %s' % flightid)
+    mis.pprint()
+    print()
+
+    # for each leg, download AOR, proposals
+    get_func = partial(get_leg,dcs=dcs)
+
+    print(flightid)
+    print('Processing legs...')
+    aors = ProgressBar.map(get_func,mis,
+                           multiprocess=False)
+    aors = [aor for aor in aors if aor is not None]
+    
+    aors = vstack(aors,metadata_conflicts='silent')
+
+    # join mis and aors by ObsBlk
+    mis = join(mis,aors,join_type='left',keys=['ObsBlk'],
+               metadata_conflicts='silent',table_names=['obs','aor'])
+
+    # delete broken lines, and those without aorid
+    ###  WARNING: THIS MIGHT LOSE SOME LEGS
+    idc = deque()
+    for idx,row in enumerate(mis):
+        if (row['Leg'] in [None,'None','']) or \
+           (str(row['AORID']) in [None,'','--']):
+            idc.append(idx)
+
+    mis.remove_rows(list(idc))
+
+    # download POS file
+    try:
+        pos = dcs.getPOS(flightid,guide=guide)
+        guide = pos.guide
+
+        # just keep target and AORID
+        pos = pos[['AORID','Target']]
+        pos.rename_column('Target','POSname')
+
+        mis = join(mis,pos,join_type='left',keys=['AORID'])
+    except IndexError:
+        # failed to read pos file
+        print('Skipping .pos for %s' % flightid)
+        mis.add_column(Column(mis['Target'],name='POSname'))
+        guide = None
+
+    mis.sort(['Leg','AORID'])
+    #mis.pprint()
+
+    # group by legs
+    legs = mis.group_by('Leg')
+    for leg in legs:
+        leg.meta['Flight Plan ID'] = flightid
+
+    # obsblk comments
+    #legs.meta['ObsBlkComments'] = comments
+
+    # output tex file
+    output = odir/('%s.tex'%flightid)
+
+    print()
+    #print('Writing to %s...'%output)
+    print('Generating %s...' % output)
+    TEX.write_tex_dossier(legs.groups, name, title, output,
+                          template=template,
+                          config=config,
+                          refresh_cache=refresh_cache,
+                          guide=guide,
+                          faor=faor,
+                          posfiles=posfiles,
+                          dcs=dcs,
+                          local=local,
+                          reg=reg,
+                          sio=sio,
+                          savefits=savefits,
+                          irsurvey=irsurvey,
+                          writetex=writetex)
+    return output
+
+
+def register_models(dcs):
+    """Register active DB models in DCS instance globally"""
+    active_models = dcs.get_active_models()
+    if active_models:
+        for name,model in active_models.items():
+            globals()[name] = model
+
+    # finally, register dcs
+    globals()['dcs'] = dcs
+
+    return active_models
+
+    
+
+def main():
+    parser = argparse.ArgumentParser(description='Generate dossiers from flight ID')
+    parser.add_argument('flightid',type=str,help='Flight ID. Can be a single flight (201809_HA_KEANU), or a flight series (e.g. 201809_HA).')
+    parser.add_argument('-v','--version',
+                        dest='version',type=str,
+                        default='',help='Specify Rev number/letter')
+    parser.add_argument('-t','--template',
+                        dest='template',type=str,default='template.tex',
+                        help='Template file (default="template.tex")')
+    parser.add_argument('-o',type=str,help='Output directory (default=flight series)')
+    parser.add_argument('-r','--refresh-cache',
+                        dest='refresh_cache',action='store_true',
+                        help='Force update from DCS')
+    parser.add_argument('-c','--compile',
+                        dest='compile',action='store_true',
+                        help='Compile tex to pdf')
+    parser.add_argument('--faor',action='store_true',help='Populate values from FAORs')
+    parser.add_argument('--pos',dest='posfiles',action='store_true',help='Download .pos files')
+    parser.add_argument('--guide',action='store_true',help='Highlight guide stars in images.')
+    parser.add_argument('-sio','--ioinstructions',
+                        dest='sio',action='store_true',
+                        help='Override ObsBlk comments with instrument operator instructions (for HAWC+ only)')
+    parser.add_argument('-texcmd',type=str,default='pdflatex',
+                        help='tex compiler in $PATH (default="pdflatex")')
+    parser.add_argument('-local',type=str,default=None,
+                        help='Specify local directory for .mis files, else query DCS')
+    parser.add_argument('-cfg',type=str,default=None,
+                        help='Specify .cfg file for additional options')
+    parser.add_argument('-scfg',type=str,default='server.cfg',help='Server config file (default=server.cfg)')
+    parser.add_argument('-mcfg',type=str,default='dcs/DBmodels.cfg',help='Model config file (default=dcs/DBmodels.cfg)')
+    parser.add_argument('-alias',action='append',nargs=2,help='Alias obsblocks (e.g. blk1 is blk2)')
+    parser.add_argument('-s','--save-aors',
+                        dest='save',action='store_true',
+                        help='Save AORs and proposals to mission folder')
+    parser.add_argument('-se','--save-aors-exit',
+                        dest='sexit',action='store_true',
+                        help='Save AORs and proposals to mission folder and exit')
+    parser.add_argument('-reg','--save-regs',
+                        dest='reg',action='store_true',
+                        help='Save region files to mission folder')
+    parser.add_argument('-nowrite','--no-write',
+                        dest='writetex',action='store_false',
+                        help='Do not [over]write .tex file.')
+    parser.add_argument('-sf','--save-fits',
+                        dest='savefits',action='store_true',
+                        help='Save .fits files of fields.')
+    parser.add_argument('-irs','--ir-survey',
+                        dest='irsurvey',
+                        default=None,
+                        help='Save .fits files of specified IR survey. Requires --save-fits options.')
+    
+    args = parser.parse_args()  
+
+    # initialize DCS link and database
+    mcfg = ConfigParser()
+    mcfg.read(args.mcfg)
+
+    dcs = DCS.DCS(refresh_cache=args.refresh_cache,modelcfg=mcfg)
+    #db = dcs.db
+    register_models(dcs)
+
+    args.flightid = args.flightid.upper()
+
+    # check for alt status
+    alt = 'ALT' in args.flightid
+    if alt:
+        args.flightid = args.flightid.replace('_ALT','')
+
+    # flight name/series
+    split = args.flightid.split('_')
+    if len(split) == 3:
+        # single flight
+        flightids = [args.flightid]
+        if alt:
+            flightids = ['%s_ALT'%flightids[0]]
+        names = [split[-1]]
+        if alt:
+            names = ['%s_ALT'%names[0]]
+        series = '_'.join(split[:-1])
+    
+    elif len(split) == 2:
+        # series, get flightids from dcs
+        flightids = dcs.getFlightSeries(args.flightid, local=args.local)
+        names = [f.split('_') for f in flightids]
+        names = ['_'.join(name[-2:]) if 'ALT' in name else name[-1] for name in names]
+        series = args.flightid
+    else:
+        raise ValueError('Flight ID "%s" not understood'%args.flightid)
+
+    if alt:
+        flightids = list(filter(lambda x: '_ALT' in x,flightids))
+        names = list(filter(lambda x: '_ALT' in x,names))
+
+
+    if args.o:
+        odir = Path(args.o)
+    else:
+        odir = series
+        if args.version:
+            odir = '%s_v%s' % (series,args.version)
+        odir = Path(odir)
+
+    odirs = [odir/name for name in names]
+
+    # alias mapping for obsblks
+    if args.alias:
+        args.alias = {a[0]:a[1] for a in args.alias}
+
+    # process each flightid
+    outfiles = deque()
+    for fid,odir in zip(flightids,odirs):
+        dcs.getFlightPlan(fid)
+
+        if args.save or args.sexit:
+            get_raw_AORs(fid,odir,
+                         dcs=dcs, refresh_cache=args.refresh_cache,
+                         proposal=True,
+                         local=args.local)
+            if args.sexit:
+                continue
+        
+        output = generate_dossier(fid, odir,
+                                  dcs=dcs, refresh_cache=args.refresh_cache,
+                                  version=args.version,
+                                  template=args.template,
+                                  local=args.local,
+                                  config=args.cfg,
+                                  alias=args.alias,
+                                  faor=args.faor,
+                                  guide=args.guide,
+                                  posfiles=args.posfiles,
+                                  reg=args.reg,
+                                  sio=args.sio,
+                                  irsurvey=args.irsurvey,
+                                  savefits=args.savefits,
+                                  writetex=args.writetex)
+        outfiles.append(output)
+
+    
+    if args.compile and not args.sexit:
+        for o in outfiles:
+            cmd = [args.texcmd,'-output-directory',Path(o).parent,o]
+            print(*cmd)
+            subprocess.run(cmd, stdout=subprocess.DEVNULL)
+            
+            
+    
+
+    
+
+if __name__ == '__main__':
+    main()
