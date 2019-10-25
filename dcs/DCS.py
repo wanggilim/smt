@@ -334,57 +334,78 @@ class DCS(object):
 
     def getAOR(self, aorID):
         """Get AOR row."""
-        if len(aorID.split('_')) == 2:
+        split = aorID.split('_')
+        if len(split) == 2:
             # this is a planID
             return self.getAORs_by_planID(aorID)
+        planID = '_'.join(split[:-1])
         
-        try:
-            aor = AOR.get(AOR.aorID==aorID)
-        except:
-            # check DCS
-            planID = '_'.join(aorID.split('_')[:-1])
-            cfile = self.getObsPlan(planID)
-            if cfile is None:
-                return None
-            return self.getAOR(aorID)
-        return json.dumps(aor.__data__)
+        if self.refresh_cache:
+            # bypass DB
+            return self.getObsPlan(planID, aorID=aorID)
+        
+        aor = DCS._query_AOR_table(aorID=aorID)
+        if not aor:
+            return self.getObsPlan(planID,aorID=aorID)
+        return json.dumps(aor)
 
     def getAORs_by_planID(self, planID):
-        aors = AOR.select().where(AOR.planID==planID)
-        aors = (aor.__data__ for aor in aors)
-        aors = list(aors)
+
+        if self.refresh_cache:
+            # bypass DB
+            return self.getObsPlan(planID)
+        
+        aors = DCS._query_AOR_table(planID=planID)
         if not aors:
-            # check DCS
-            cfile = self.getObsPlan(planID)
-            if cfile is None:
-                return None
-            return getAORs_by_planID(planID)
+            return self.getObsPlan(planID)
 
-        return json.dumps(list(aors))
+        return json.dumps(aors)
 
+    
     def getAORs_by_ObsBlk(self, ObsBlk):
-        aors = AOR.select().where(AOR.ObsBlk==ObsBlk).order_by(AOR.order,AOR.aorID)
-        aors = (aor.__data__ for aor in aors)
-        aors = list(aors)
-        if not aors:
-            # check DCS
-            planID = '_'.join(ObsBlk.split('_')[1:-1])
-            cfile = self.getObsPlan(planID)
-            if cfile is None:
-                return None
-            return getAORs_by_ObsBlk(ObsBlk)
+        planID = '_'.join(ObsBlk.split('_')[1:-1])
+        
+        if self.refresh_cache:
+            # bypass DB
+            return self.getObsPlan(planID,ObsBlk=ObsBlk)
 
-        return json.dumps(list(aors))
+        aors = DCS._query_AOR_table(ObsBlk=ObsBlk)
+        if not aors:
+            return self.getObsPlan(planID,ObsBlk=ObsBlk)
+
+        return json.dumps(aors)
+
+    @staticmethod
+    def _query_AOR_table(aorID=None,ObsBlk=None,planID=None):
+        """Perform DB lookup on AOR table"""
+        if aorID:
+            try:
+                aor = AOR.get(AOR.aorID==aorID)
+                aors = aor.__data__
+            except:
+                aors = None
+        elif planID:
+            aors = AOR.select().where(AOR.planID==planID)
+            aors = [aor.__data__ for aor in aors]
+            aors = aors if aors else None
+        elif ObsBlk:
+            aors = AOR.select().where(AOR.ObsBlk==ObsBlk).order_by(AOR.order,AOR.aorID)
+            aors = [aor.__data__ for aor in aors]
+            aors = aors if aors else None
+        else:
+            aors = None
+        return aors
+    
     
     def getObsPlan(self, planID,
                    rel='observationPlanning/DbProxy/getObsPlanAORs.jsp',
                    form='DIRECT',
-                   raw=False):
+                   raw=False,
+                   aorID=None,
+                   ObsBlk=None):
         '''Download AOR xml.'''
         query = (self.dcsurl/rel).with_query({'origin':'GI','obsplanID':planID})
         cfile = self._queryDCS(query,form)
-        if raw:
-            return cfile
 
         aorcfg = self.mcfg['AOR']
         rows = AOR.to_rows(cfile, aorcfg)
@@ -392,7 +413,12 @@ class DCS(object):
             return None
         AOR.replace_rows(self.db, rows)
         
-        return self.getAORs_by_planID(planID)
+        if raw:
+            return cfile
+
+        aors = DCS._query_AOR_table(aorID=aorID,ObsBlk=ObsBlk,planID=planID)
+
+        return json.dumps(aors)
         
     def getObsPlanXML(self, planID,
                       rel='observationPlanning/observingPlanDetails.jsp',

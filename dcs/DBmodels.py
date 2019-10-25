@@ -129,7 +129,10 @@ def combine_AORSEARCH_data(row):
 def AOR_to_rows(filename, aorcfg):
     """Converts AOR xml files to rows for DB ingestion"""
     with open(filename,'r') as f:
-        aor = BeautifulSoup(f,HTMLPARSER).body.aors.list
+        try:
+            aor = BeautifulSoup(f,HTMLPARSER).body.aors.list
+        except AttributeError:
+            return None
 
     meta = get_keydict(aor,json.loads(aorcfg['meta_keys']))
     try:

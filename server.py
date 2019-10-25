@@ -359,6 +359,9 @@ def main():
     parser = argparse.ArgumentParser(description='Run server and startup SOFIA Mission Toolbox')
     parser.add_argument('-scfg',type=str,default='server.cfg',help='Server config file (default=server.cfg)')
     parser.add_argument('-mcfg',type=str,default='dcs/DBmodels.cfg',help='Model config file (default=dcs/DBmodels.cfg)')
+    parser.add_argument('-r','--refresh-cache',
+                        dest='refresh_cache',action='store_true',
+                        help='Force update from DCS')
     args = parser.parse_args()
 
     # Read in options
@@ -379,13 +382,13 @@ def main():
     mcfg = ConfigParser()
     mcfg.read(args.mcfg)
 
-    dcs = DCS.DCS(modelcfg=mcfg)
-    dcs._force_db_sync()
-    exit()
+    dcs = DCS.DCS(modelcfg=mcfg,refresh_cache=args.refresh_cache)
+    #dcs._force_db_sync()
+    #exit()
     #db = dcs.db
     #register_models(dcs)
 
-    res = dcs.getAOR('07_0130')
+    res = dcs.getAOR('06_0021_2')
     print(res)
     exit()
 
