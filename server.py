@@ -388,8 +388,12 @@ def main():
     #db = dcs.db
     #register_models(dcs)
 
-    res = dcs.getAOR('06_0021_2')
+    res = dcs.getAORs(['OB_07_0149_02','06_0182'], raw=True)
+    #res2 = dcs.getAORs(['OB_06_0021_01'],as_json=True)
     print(res)
+    #print()
+    #print(res2)
+    #print(str(res)==str(res2))
     exit()
 
     '''

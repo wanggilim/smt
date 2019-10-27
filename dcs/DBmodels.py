@@ -6,14 +6,32 @@ from functools import reduce,partial
 from bs4 import BeautifulSoup
 from astropy.coordinates import SkyCoord
 import astropy.units as u
-#from FAOR import FAOR as dcsFAOR
-from .FAOR import FAOR as dcsFAOR
+from astropy.table import Table
+from FAOR import FAOR as dcsFAOR
+#import POS as dcsPOS
+#from .FAOR import FAOR as dcsFAOR
+#from .POS import POS as dcsPOS
 from collections import deque
-from pandas import read_html, concat
+from pandas import read_html, concat, DataFrame
 import numpy as np
 
 DB_TYPE_MAP = {'int':IntegerField,'float':DoubleField,'str':TextField,'foreign':ForeignKeyField}
 HTMLPARSER = 'lxml'
+
+def _as_pandas(rows):
+    if isinstance(rows,dict):
+        columns = rows.keys()
+    else:
+        columns = rows[0].keys()
+
+    return DataFrame.from_records(rows,columns=columns)
+
+def _as_table(rows):
+    if isinstance(rows,dict):
+        columns = rows.keys()
+    else:
+        columns = rows[0].keys()
+    return Table(data=rows,names=columns)
 
 def generate_field(key, units, options):
     '''Generate database Field objects for each key'''
@@ -203,6 +221,14 @@ def MIS_to_rows(filename, miscfg):
     # save filename
     meta['FILENAME'] = str(Path(filename).resolve())
 
+    # set name (e.g. GAVIN)
+    meta['FlightName'] = mis['id'].split('_')[-1]
+
+    # save timestamp
+    stats = Path(filename).stat()
+    ts = stats.st_mtime if stats.st_mtime > stats.st_ctime else stats.st_ctime
+    meta['TIMESTAMP'] = ts
+
     # Get legs, and pull xml keys
     legs = mis.legs.find_all('leg')
     legnums = (leg['id'] for leg in legs)
@@ -234,6 +260,11 @@ def FAOR_to_rows(filename, faorcfg):
     meta['FILENAME'] = str(Path(filename).resolve())
     meta['planID'] = '_'.join(faor.config[0]['AORID'].split('_')[0:-1])
     meta['fkey'] = 'Leg%s_%s' % (meta['Leg'],meta['Flight'])
+
+    # save timestamp
+    stats = Path(filename).stat()
+    ts = stats.st_mtime if stats.st_mtime > stats.st_ctime else stats.st_ctime
+    meta['TIMESTAMP'] = ts
 
     # Get config data from each config block
     config = map(lambda c: {k:c.get(k,None) for k in json.loads(faorcfg['config_keys'])}, faor.config)
@@ -328,6 +359,11 @@ def ModelFactory(name, config, db, register=True):
     cls.replace_rows = partial(replace_rows,cls=cls)
 
     cls.MODEL_NAME = name
+
+    # add rendering functions
+    cls.as_pandas = _as_pandas
+    cls.as_json = lambda x: json.dumps(x)
+    cls.as_table = _as_table
         
     return cls
 
@@ -337,10 +373,30 @@ CONVERTER_FUNCS = {'AOR':AOR_to_rows,
                    'FAOR':FAOR_to_rows,
                    'AORSEARCH':AORSEARCH_to_rows}
 
+
+def POS_to_rows(filename):
+
+    target_lines = deque()
+    with open(filename,'r') as f:
+        for line in f:
+            if '|' in line and (not 'AORID' in line):
+                target_lines.append(line[1:].strip().split('|')[:-1])
+
+    print(target_lines)
+    exit()
+
+    
+
 if __name__ == '__main__':
     from configparser import ConfigParser
     c = ConfigParser()
     c.read('DBmodels.cfg')
+
+    posfile = '../test/201910_FO_GIMLI/201910_FO_GIMLI_V838_Mon.pos'
+    #pos = dcsPOS.read_POS_file('../test/201910_FO_GIMLI/201910_FO_GIMLI_V838_Mon.pos',guide=True)
+    pos = POS_to_rows(posfile)
+    print(pos)
+    exit()
 
 
     #faor = dcsFAOR.read('../test/Leg13__90_0062_Alpha_Cet.faor')

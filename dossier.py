@@ -19,7 +19,7 @@ from astropy.utils.console import ProgressBar
 from functools import partial
 from configparser import ConfigParser
 
-def get_raw_leg(leg,dcs,odir,proposal=False):
+def get_raw_leg(leg,dcs,odir,proposal=False,plankey='ObsPlanID'):
     """Get raw aor from DCS
 
     Download raw AOR and (optionally) proposal pdf files from DCS.
@@ -34,19 +34,20 @@ def get_raw_leg(leg,dcs,odir,proposal=False):
         leg (Row): Return input table row.
     
     """
-    if not leg['AOR']:
+    planID = leg[plankey]
+    if not planID:
         return None
 
     #msg = '  Retrieving AOR %s for %s' % (leg['AOR'],leg['LegName'])
     odir = Path(odir)
-    cfile = dcs.getObsPlan(leg['AOR'],raw=True)
-    outfile = '%s.aor'%leg['AOR']
+    cfile = dcs.getAORs(planID,raw=True)
+    outfile = '%s.aor'%planID
     copy(cfile,odir/outfile)
 
     if proposal:
         #msg = '\n  Retrieving proposal for AOR %s' % (leg['AOR'])
-        cfile = dcs.getProposal(leg['AOR'])
-        outfile = '%s.pdf'%leg['AOR']
+        cfile = dcs.getProposal(planID)
+        outfile = '%s.pdf'%planID
         copy(cfile,odir/outfile)
 
     return leg
@@ -96,7 +97,7 @@ def get_raw_AORs(flightid, odir,
     return mis
 
 
-def get_leg(leg, dcs):
+def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID'):
     """Get AOR for input leg
 
     Download AOR for flight leg.
@@ -109,14 +110,25 @@ def get_leg(leg, dcs):
         aor (Table): AOR table.
     
     """
-    if not leg['AOR']:
+    if not leg[plankey]:
         return None
     
     #print('  Retrieving AOR %s for %s' % (leg['AOR'],leg['LegName']))
-    aor = dcs.getObsPlan(leg['AOR'],obsblock=leg['ObsBlk'])
+    aor = dcs.getAORs(leg[obsblkkey])
+
+    # Merge mis and aor data
+    if isinstance(aor,dict):
+        aor = [aor]
+
+    if aor is None:
+        # likely a calibrator
+        print(leg)
+        return leg
+        
+    aor = [dict(leg,**a) if a else None for a in aor]
 
     # Update meta data for easier retrieval of PI info later by LEG
-    aor.meta['LEG%iPI'%leg['Leg']] = aor.meta['PI']
+    #aor.meta['LEG%iPI'%leg['Leg']] = aor.meta['PI']
     #print('    ObsBlk: %s'%leg['ObsBlk'])
 
     return aor
@@ -136,7 +148,8 @@ def generate_dossier(flightid, odir,
                      sio=False,
                      savefits=False,
                      irsurvey=None,
-                     writetex=True):
+                     writetex=True,
+                     plankey='ObsPlanID',obsblkkey='ObsBlkID'):
     """Generate dossier from flightid
 
     Generate dossier from template for given flightid.
@@ -170,7 +183,7 @@ def generate_dossier(flightid, odir,
 
     if not dcs:
         # initialize DCS link
-        dcs = DCS(refresh_cache=refresh_cache)
+        dcs = DCS.DCS(refresh_cache=refresh_cache)
 
     if 'ALT' in flightid:
         name = '_'.join(flightid.split('_')[-2:])
@@ -189,13 +202,13 @@ def generate_dossier(flightid, odir,
     if alias:
         for leg in mis:
             # apply aliases, if any
-            if leg['ObsBlk'] in alias:
-                newblk = alias[leg['ObsBlk']]
-                leg['ObsBlk'] = newblk
-                leg['AOR'] = '_'.join(newblk.split('_')[1:3])
+            if leg[obsblkkey] in alias:
+                newblk = alias[leg[obsblkkey]]
+                leg[obsblkkey] = newblk
+                leg[plankey] = '_'.join(newblk.split('_')[1:3])
     
     #print('Retrieving MIS file for %s' % flightid)
-    mis.pprint()
+    #mis.pprint()
     print()
 
     # for each leg, download AOR, proposals
@@ -203,25 +216,10 @@ def generate_dossier(flightid, odir,
 
     print(flightid)
     print('Processing legs...')
-    aors = ProgressBar.map(get_func,mis,
+    legs = ProgressBar.map(get_func,mis,
                            multiprocess=False)
-    aors = [aor for aor in aors if aor is not None]
-    
-    aors = vstack(aors,metadata_conflicts='silent')
 
-    # join mis and aors by ObsBlk
-    mis = join(mis,aors,join_type='left',keys=['ObsBlk'],
-               metadata_conflicts='silent',table_names=['obs','aor'])
-
-    # delete broken lines, and those without aorid
-    ###  WARNING: THIS MIGHT LOSE SOME LEGS
-    idc = deque()
-    for idx,row in enumerate(mis):
-        if (row['Leg'] in [None,'None','']) or \
-           (str(row['AORID']) in [None,'','--']):
-            idc.append(idx)
-
-    mis.remove_rows(list(idc))
+    legs = [leg for leg in legs if leg is not None]
 
     # download POS file
     try:
@@ -238,6 +236,8 @@ def generate_dossier(flightid, odir,
         print('Skipping .pos for %s' % flightid)
         mis.add_column(Column(mis['Target'],name='POSname'))
         guide = None
+
+    exit()
 
     mis.sort(['Leg','AORID'])
     #mis.pprint()
@@ -438,4 +438,8 @@ def main():
     
 
 if __name__ == '__main__':
-    main()
+    #main()
+
+    dcs = DCS.DCS()
+    register_models(dcs)
+    generate_dossier('201910_FO_GIMLI',odir='test2',dcs=dcs,guide=True)
