@@ -19,7 +19,10 @@ import re
 DB_TYPE_MAP = {'int':IntegerField,'float':DoubleField,'str':TextField,'foreign':ForeignKeyField}
 HTMLPARSER = 'lxml'
 
-POS_TARGET_RE = re.compile('\#\d\d\_([^,\|]*\|){15}\n')
+POS_SPLIT_RE = re.compile(r'\#-*\sTarget:\s.*\s-*\#\n')
+POS_CONFIG_RE = re.compile(r'\#\d\d\_([^,\|]*\|){15}\n')
+GUIDE_RE = re.compile(r'\#\s(?P<Cat>.*)\,\s(?P<Cam>FPI-TO|WFI|FFI)\,\sRadius=(?P<Radius>[\d\.]*)\,\s(?P<MagData>.*)\n(?P<Data>.*)')
+
 
 def _as_pandas(rows):
     if isinstance(rows,dict):
@@ -318,60 +321,73 @@ def AORSEARCH_to_rows(filenames, aorsearchcfg):
 
 def POS_to_rows(filename, poscfg):
 
-    target_lines = deque()
-    with open(filename,'r') as f:
-        text = f.read()
-    target_lines = [line[0][1:].strip().split('|')[:-1] for line in POS_TARGET_RE.finditer(text)]
-
     data_keys = json.loads(poscfg['data_keys'])
     pos_keys = json.loads(poscfg['pos_keys'])
-
-    cfgrows = [dict(zip(data_keys,line)) for line in target_lines]
-    rowdict = {row['AORID']:row for row in cfgrows}
+    
+    with open(filename,'r') as f:
+        text = f.read()
 
     rows = deque()
-    
-    for aor,row in rowdict.items():
-        target = row['Target']
-        matches = re.findall('%s.*J2000.*\n'%target,text)
-        matches = [match.strip().split() for match in matches]
+    target_blocks = POS_SPLIT_RE.split(text)
+    for target in target_blocks[1:]:
+        # get config block
+        config = POS_CONFIG_RE.search(target).group()
+        config = config[1:].strip().split('|')[:-1]
+        config = {k:v for k,v in zip(data_keys,config)}
+        config['FILENAME'] = filename
+        config['planID'] = '_'.join(config['AORID'].split('_')[:-1])
 
-        # first one is base position, others are nods
-        base = {k:v for k,v in zip(pos_keys, matches[0])}
-        nods = matches[1:]
-
-        # add base row
-        base['AORID'] = aor
-        base['FILENAME'] = filename
-        base['pkey'] = '%s: %s' % (aor,target)
-
-        base.update(**rowdict[aor])
-        rows.append(base)
-
-
-        # for each nod, get AORIDs
+        # get all nods
+        nods = re.findall('%s.*J2000.*\n'%config['Target'],target)
         for idx,nod in enumerate(nods):
-            aors = nod[-1][1:].split(',')
-            nod = nod[:-1]
-            if len(nod) == 4:
+            nod = nod.split()
+            if nod[-1][0] == '#':
                 # no PM
                 nod = {k:v for k,v in zip(pos_keys[:-2],nod)}
                 nod['PMRA'] = ''
                 nod['PMDEC'] = ''
-
             else:
                 nod = {k:v for k,v in zip(pos_keys,nod)}
-            # create new nod pos for each aorid in row
-            nod = [nod.copy() for i in range(len(aors))]
-            for n,a in zip(nod,aors):
-                n['AORID'] = a
-                n['FILENAME'] = filename
-                n['pkey'] = '%s: %s' % (a,n['POSName'])
-                n.update(**rowdict[a])
-                rows.append(n)
+            nod['pkey'] = '%s: %s' % (config['AORID'],nod['POSName'])
+            nod.update(config)
+            
+            nods[idx] = nod
+        rows.extend(nods)
 
     return list(rows)
 
+def GUIDE_to_rows(filename, guidecfg):
+    data_keys = json.loads(guidecfg['data_keys'])
+    pos_keys = json.loads(guidecfg['pos_keys'])
+    keys = data_keys + pos_keys
+    
+    with open(filename,'r') as f:
+        text = f.read()
+
+    rows = deque()
+    target_blocks = POS_SPLIT_RE.split(text)
+    for target_block in target_blocks[1:]:
+        # get config block
+        config = POS_CONFIG_RE.search(target_block).group()
+        config = config[1:].strip().split('|')[:-1]
+        aorid,target = config[0],config[1]
+
+        # now get guide stars
+        guides = GUIDE_RE.findall(target_block)
+        for idx,guide in enumerate(guides):
+            guide = list(guide)
+            data = guide.pop(-1)
+            guide.extend(data.split())
+            guide = {k:v for k,v in zip(keys,guide)}
+            guide['FILENAME'] = filename
+            guide['AORID'] = aorid
+            guide['Target'] = target
+            guide['pkey'] = '%s: %s' % (aorid,guide['GuidePOSName'])
+            guide['planID'] = '_'.join(aorid.split('_')[:-1])
+            guides[idx] = guide
+
+        rows.extend(guides)
+    return list(rows)
     
 
 def insert_rows(db, rows, cls):
@@ -432,6 +448,7 @@ CONVERTER_FUNCS = {'AOR':AOR_to_rows,
                    'MIS':MIS_to_rows,
                    'FAOR':FAOR_to_rows,
                    'POS':POS_to_rows,
+                   'GUIDE':GUIDE_to_rows,
                    'AORSEARCH':AORSEARCH_to_rows}
 
     
@@ -441,10 +458,14 @@ if __name__ == '__main__':
     c = ConfigParser()
     c.read('DBmodels.cfg')
 
-    posfile = '../test/201910_FO_GIMLI/201910_FO_GIMLI_V838_Mon.pos'
+    #posfile = '../test/201910_FO_GIMLI/201910_FO_GIMLI_V838_Mon.pos'
+    posfile = '../test/07_0225.pos'
     #pos = dcsPOS.read_POS_file('../test/201910_FO_GIMLI/201910_FO_GIMLI_V838_Mon.pos',guide=True)
     pos = POS_to_rows(posfile,c['POS'])
-    print(pos)
+    #print(pos)
+
+    guide = GUIDE_to_rows(posfile,c['GUIDE'])
+    print(guide)
     exit()
 
 

@@ -385,9 +385,18 @@ def main():
     dcs = DCS.DCS(modelcfg=mcfg,refresh_cache=args.refresh_cache)
     register_models(dcs)
 
-    rows = POS.to_rows('test/201910_FO_GIMLI/201910_FO_GIMLI_V838_Mon.pos',mcfg['POS'])
-    print('Digest POS')
-    POS.replace_rows(dcs.db,rows)
+    #dcs._force_db_sync()
+    
+    #rows = POS.to_rows('test/07_0225.pos',mcfg['POS'])
+    #print('Digest POS')
+    #POS.replace_rows(dcs.db,rows)
+
+    #rows = GUIDE.to_rows('test/07_0225.pos',mcfg['GUIDE'])
+    #print('Digest GUIDE')
+    #GUIDE.replace_rows(dcs.db,rows)
+    res = dcs.getPOS('07_0193',guide=True)
+    #print(res)
+    
     exit()
     
     #dcs._force_db_sync()

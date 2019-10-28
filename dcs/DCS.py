@@ -18,6 +18,7 @@ from configparser import ConfigParser
 from peewee import SqliteDatabase
 from . import DBmodels
 from pandas import DataFrame
+from astropy.utils.console import ProgressBar
 
 '''
 import MIS
@@ -76,7 +77,7 @@ class DCS(object):
                  cachedir=get_cache_dir(),
                  refresh_cache=False,
                  modelcfg = 'dcs/DBmodels.cfg',
-                 models = ('AOR','MIS','FAOR','POS','AORSEARCH')):
+                 models = ('AOR','MIS','FAOR','POS','GUIDE','AORSEARCH')):
         
         self.browser = mechanicalsoup.StatefulBrowser()
         self.dcsurl = URL(dcsurl)
@@ -123,7 +124,7 @@ class DCS(object):
 
         with set_temp_cache(self.cachedir):
             with open(urlmap,'r') as f:
-                for line in f:
+                for line in ProgressBar(f.readlines()):
                     streamfile = line.split("', (")[0][1:]
                     if 'fileType=misxml&fpid=' in streamfile:
                         # MIS file
@@ -137,11 +138,19 @@ class DCS(object):
                         rows = AOR.to_rows(cfile, self.mcfg['AOR'])
                         if rows:
                             AOR.replace_rows(self.db, rows)
+                    elif 'pos_' in streamfile:
+                        cfile = download_file(streamfile,show_progress=False,cache=True)
+                        rows = POS.to_rows(cfile, self.mcfg['POS'])
+                        if rows:
+                            POS.replace_rows(self.db, rows)
+                        rows = GUIDE.to_rows(cfile, self.mcfg['GUIDE'])
+                        if rows:
+                            GUIDE.replace_rows(self.db, rows)
                     else:
                         continue
                     
 
-    def _initialize_database(self, mcfg, models=('AOR','MIS','FAOR','POS','AORSEARCH')):
+    def _initialize_database(self, mcfg, models=('AOR','MIS','FAOR','POS','GUIDE','AORSEARCH')):
         """Initialize database, create models dynamically, and register models globally"""
         db_file = mcfg['DEFAULT']['db_file']
         db = SqliteDatabase(db_file)
@@ -304,7 +313,11 @@ class DCS(object):
 
         # truncate tmpfile by hashing in case filename is too long
         if len(tmpfile) > maxlen:
-            tmpfile = str(uuid.uuid3(uuid.NAMESPACE_URL,tmpfile))
+            if 'posFormat' in tmpfile:
+                prefix = 'pos_'
+            else:
+                prefix = ''
+            tmpfile = '%s%s'%(prefix,str(uuid.uuid3(uuid.NAMESPACE_URL,tmpfile)))
         tmpfile = Path(tmpdir)/tmpfile
         streamfile = 'file://%s' % str(tmpfile)
 
@@ -457,6 +470,59 @@ class DCS(object):
             return json.dumps(aors)
         return aors
 
+    def getPOS(self, aorID, guide=False, as_table=False, as_pandas=False, as_json=False, raw=False):
+        if isinstance(aorID,str):
+            # single aor/plan/obsblk
+            planID = _aorID_to_planID(aorID)
+
+            if self.refresh_cache:
+                # bypass DB
+                if _is_aorID(aorID):
+                    return self._getPOS(planID, aorID=aorID, guide=guide, raw=raw,
+                                        as_table=as_table, as_pandas=as_pandas, as_json=as_json)
+                elif _is_planID(aorID):
+                    return self._getPOS(planID, guide=guide, raw=raw,
+                                        as_table=as_table, as_pandas=as_pandas, as_json=as_json)
+                else:
+                    return json.dumps(None) if as_json else None
+
+            pos = DCS._query_POS_table(aorID=aorID,guide=guide)
+            if not pos:
+                return self._getPOS(planID, aorID=aorID, guide=guide, raw=raw,
+                                    as_table=as_table,as_pandas=as_pandas,as_json=as_json)
+            
+        else:
+            # many aors/plans
+            if self.refresh_cache:
+                # bypass DB, but don't perform query yet
+                planIDs = (_aorID_to_planID(a) for a in aorID)
+                cfiles = [self._getPOS(planID, raw=True) for planID in planIDs]
+            pos = DCS._query_POS_table(aorID=aorID)
+            if not pos:
+                planIDs = (_aorID_to_planID(a) for a in aorID)
+                cfiles = [self._getObsPlan(planID, raw=True) for planID in planIDs]
+                pos = DCS._query_POS_table(aorID=aorID, guide=guide)
+            pos = pos if pos else None
+
+        if raw:
+            pos = list(pos)
+            fnames = {p['FILENAME'] for p in pos}
+            if len(fnames) == 1:
+                return fnames.pop()
+            else:
+                return fnames
+
+        if as_table:
+            return POS.as_table(pos)
+
+        if as_pandas:
+            return POS.as_pandas(pos)
+            
+        if as_json:
+            return POS.as_json(pos)
+        return pos
+        
+
     def getFlightPlan(self, flightid, ObsBlk=None,
                       as_table=False, as_pandas=False, as_json=False, local=None):
         if self.refresh_cache:
@@ -576,6 +642,72 @@ class DCS(object):
         else:
             legs = None
         return legs
+
+    @staticmethod
+    def _query_POS_table(aorID=None,planID=None,target=None,guide=False):
+        if aorID:
+            if isinstance(aorID,str):
+                # single aorID
+                if _is_aorID(aorID):
+                    if guide:
+                        pos = POS.select(POS,GUIDE).join(GUIDE).where(POS.AORID == aorID).dicts()
+                    else:
+                        pos = POS.select().where(POS.AORID == aorID).dicts()
+               # else:
+               #     pos = POS.select(POS,GUIDE).join(GUIDE).where(POS.AORID.in_(aorID)).order_by(POS.POSName).dicts()
+               # pos = list(pos)
+               # pos = pos if pos else None
+                elif _is_planID(aorID):
+                    return DCS._query_POS_table(planID=aorID,guide=guide)
+                else:
+                    pos = None
+            else:
+                if guide:
+                    pos = POS.select(POS,GUIDE).join(GUIDE).where((POS.AORID.in_(aorID)) |
+                                                                  (POS.planID.in_(planID))).dicts()
+                else:
+                    pos = POS.select().where((POS.AORID.in_(aorID)) |
+                                             (POS.planID.in_(planID))).dicts()
+            pos = list(pos)
+            pos = pos if pos else None
+                
+        elif planID:
+            if isinstance(planID,str):
+                # single planID
+                if guide:
+                    pos = POS.select(POS,GUIDE).join(GUIDE).where(POS.planID == planID).dicts()
+                else:
+                    pos = POS.select().where(POS.planID == planID).dicts()
+            else:
+                if guide:
+                    pos = POS.select(POS,GUIDE).join(GUIDE).where((POS.AORID.in_(aorID)) |
+                                                                  (POS.planID.in_(planID))).dicts()
+                else:
+                    pos = POS.select().where((POS.AORID.in_(aorID)) |
+                                             (POS.planID.in_(planID))).dicts()
+            pos = list(pos)
+            pos = pos if pos else None
+            
+        elif target:
+            if isinstance(target,str):
+                # single target
+                if guide:
+                    pos = POS.select(POS,GUIDE).join(GUIDE).where(POS.Target == target).order_by(POS.POSName).dicts()
+                else:
+                    pos = POS.select().where(POS.Target == target).order_by(POS.POSName).dicts()
+                    
+            else:
+                if guide:
+                    pos = POS.select(POS,GUIDE).join(GUIDE).where(POS.Target.in_(target)).order_by(POS.POSName).dicts()
+                else:
+                    pos = POS.select().where(POS.Target.in_(target)).order_by(POS.POSName).dicts()
+                    
+            pos = list(pos)
+            pos = pos if pos else None
+        else:
+            pos = None
+        return pos
+            
 
     def _getObsPlan(self, planID,
                     rel='observationPlanning/DbProxy/getObsPlanAORs.jsp',
@@ -702,9 +834,62 @@ class DCS(object):
         if as_json:
             return MIS.as_json(legs)
         return legs
-        
 
-    def getPOS(self,flightid,
+
+    def _getPOS(self,planID,
+                aorID=None,
+                rel='observationPlanning/SaveTargetPos.jsp',
+                form='DIRECT',
+                raw=True,
+                guide=False,
+                as_table=False,
+                as_pandas=False,
+                as_json=False,
+                insert=True):
+        '''Download pos file and store in both POS and GUIDE tables'''
+
+        formfill = {'cycleID':'-1',
+                    'instrument':'ALL',
+                    'planID':planID,
+                    'resPerPage':'500',
+                    'spectel1':'ALL',
+                    'spectel2':'ALL',
+                    'mode':'ALL',
+                    'targetType':'ALL',
+                    'inputEquinox':'2000',
+                    'aorState':'ALL',
+                    'posFormat':'MCCS'}
+        
+        query = (self.dcsurl/rel).with_query(formfill)
+        cfile = self._queryDCS(query, form)
+
+        poscfg = self.mcfg['POS']
+        guidecfg = self.mcfg['GUIDE']
+
+        rows = POS.to_rows(cfile, poscfg)
+        if rows and insert:
+            POS.replace_rows(self.db, rows)
+
+        rows = GUIDE.to_rows(cfile, guidecfg)
+        if rows and insert:
+            GUIDE.replace_rows(self.db, rows)
+
+        if raw: 
+            return cfile
+
+        pos = DCS._query_POS_table(aorID=aorID, planID=planID, guide=guide)
+
+        if as_table:
+            return POS.as_table(pos)
+
+        if as_pandas:
+            return POS.as_pandas(pos)
+
+        if as_json:
+            return POS.as_json(pos)
+        return pos
+
+    def _getPOSOld(self,flightid,
                rel='observationPlanning/SaveTargetPos.jsp',
                form='DIRECT',
                guide=False):
