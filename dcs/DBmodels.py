@@ -7,16 +7,19 @@ from bs4 import BeautifulSoup
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from astropy.table import Table
-from FAOR import FAOR as dcsFAOR
+#from FAOR import FAOR as dcsFAOR
 #import POS as dcsPOS
-#from .FAOR import FAOR as dcsFAOR
+from .FAOR import FAOR as dcsFAOR
 #from .POS import POS as dcsPOS
 from collections import deque
 from pandas import read_html, concat, DataFrame
 import numpy as np
+import re
 
 DB_TYPE_MAP = {'int':IntegerField,'float':DoubleField,'str':TextField,'foreign':ForeignKeyField}
 HTMLPARSER = 'lxml'
+
+POS_TARGET_RE = re.compile('\#\d\d\_([^,\|]*\|){15}\n')
 
 def _as_pandas(rows):
     if isinstance(rows,dict):
@@ -312,6 +315,63 @@ def AORSEARCH_to_rows(filenames, aorsearchcfg):
     #row_func = partial(combine_AORSEARCH_data)
     rows = map(combine_AORSEARCH_data,rows)
     return list(rows)
+
+def POS_to_rows(filename, poscfg):
+
+    target_lines = deque()
+    with open(filename,'r') as f:
+        text = f.read()
+    target_lines = [line[0][1:].strip().split('|')[:-1] for line in POS_TARGET_RE.finditer(text)]
+
+    data_keys = json.loads(poscfg['data_keys'])
+    pos_keys = json.loads(poscfg['pos_keys'])
+
+    cfgrows = [dict(zip(data_keys,line)) for line in target_lines]
+    rowdict = {row['AORID']:row for row in cfgrows}
+
+    rows = deque()
+    
+    for aor,row in rowdict.items():
+        target = row['Target']
+        matches = re.findall('%s.*J2000.*\n'%target,text)
+        matches = [match.strip().split() for match in matches]
+
+        # first one is base position, others are nods
+        base = {k:v for k,v in zip(pos_keys, matches[0])}
+        nods = matches[1:]
+
+        # add base row
+        base['AORID'] = aor
+        base['FILENAME'] = filename
+        base['pkey'] = '%s: %s' % (aor,target)
+
+        base.update(**rowdict[aor])
+        rows.append(base)
+
+
+        # for each nod, get AORIDs
+        for idx,nod in enumerate(nods):
+            aors = nod[-1][1:].split(',')
+            nod = nod[:-1]
+            if len(nod) == 4:
+                # no PM
+                nod = {k:v for k,v in zip(pos_keys[:-2],nod)}
+                nod['PMRA'] = ''
+                nod['PMDEC'] = ''
+
+            else:
+                nod = {k:v for k,v in zip(pos_keys,nod)}
+            # create new nod pos for each aorid in row
+            nod = [nod.copy() for i in range(len(aors))]
+            for n,a in zip(nod,aors):
+                n['AORID'] = a
+                n['FILENAME'] = filename
+                n['pkey'] = '%s: %s' % (a,n['POSName'])
+                n.update(**rowdict[a])
+                rows.append(n)
+
+    return list(rows)
+
     
 
 def insert_rows(db, rows, cls):
@@ -371,19 +431,8 @@ def ModelFactory(name, config, db, register=True):
 CONVERTER_FUNCS = {'AOR':AOR_to_rows,
                    'MIS':MIS_to_rows,
                    'FAOR':FAOR_to_rows,
+                   'POS':POS_to_rows,
                    'AORSEARCH':AORSEARCH_to_rows}
-
-
-def POS_to_rows(filename):
-
-    target_lines = deque()
-    with open(filename,'r') as f:
-        for line in f:
-            if '|' in line and (not 'AORID' in line):
-                target_lines.append(line[1:].strip().split('|')[:-1])
-
-    print(target_lines)
-    exit()
 
     
 
@@ -394,7 +443,7 @@ if __name__ == '__main__':
 
     posfile = '../test/201910_FO_GIMLI/201910_FO_GIMLI_V838_Mon.pos'
     #pos = dcsPOS.read_POS_file('../test/201910_FO_GIMLI/201910_FO_GIMLI_V838_Mon.pos',guide=True)
-    pos = POS_to_rows(posfile)
+    pos = POS_to_rows(posfile,c['POS'])
     print(pos)
     exit()
 

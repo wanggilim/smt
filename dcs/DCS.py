@@ -76,7 +76,7 @@ class DCS(object):
                  cachedir=get_cache_dir(),
                  refresh_cache=False,
                  modelcfg = 'dcs/DBmodels.cfg',
-                 models = ('AOR','MIS','FAOR','AORSEARCH')):
+                 models = ('AOR','MIS','FAOR','POS','AORSEARCH')):
         
         self.browser = mechanicalsoup.StatefulBrowser()
         self.dcsurl = URL(dcsurl)
