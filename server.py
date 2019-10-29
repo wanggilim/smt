@@ -385,7 +385,7 @@ def main():
     dcs = DCS.DCS(modelcfg=mcfg,refresh_cache=args.refresh_cache)
     register_models(dcs)
 
-    #dcs._force_db_sync()
+    dcs._force_db_sync()
     
     #rows = POS.to_rows('test/07_0225.pos',mcfg['POS'])
     #print('Digest POS')

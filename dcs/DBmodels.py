@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-from peewee import Model,SqliteDatabase,TextField,IntegerField,DoubleField,ForeignKeyField
+from peewee import Model,SqliteDatabase,TextField,IntegerField,DoubleField,ForeignKeyField,BooleanField
 import json
 from pathlib import Path
 from functools import reduce,partial
@@ -16,7 +16,7 @@ from pandas import read_html, concat, DataFrame
 import numpy as np
 import re
 
-DB_TYPE_MAP = {'int':IntegerField,'float':DoubleField,'str':TextField,'foreign':ForeignKeyField}
+DB_TYPE_MAP = {'int':IntegerField,'float':DoubleField,'str':TextField,'bool':BooleanField,'foreign':ForeignKeyField}
 HTMLPARSER = 'lxml'
 
 POS_SPLIT_RE = re.compile(r'\#-*\sTarget:\s.*\s-*\#\n')
@@ -29,12 +29,12 @@ def _as_pandas(rows):
         columns = rows.keys()
     else:
         columns = rows[0].keys()
-
     return DataFrame.from_records(rows,columns=columns)
 
 def _as_table(rows):
     if isinstance(rows,dict):
         columns = rows.keys()
+        print(columns)
     else:
         columns = rows[0].keys()
     return Table(data=rows,names=columns)
@@ -162,7 +162,9 @@ def AOR_to_rows(filename, aorcfg):
     try:
         pi = aor.investigator.attrs
         inst = pi['institution']
-        pi = ' '.join((pi['honorific'],pi['firstname'],pi['lastname']))
+        if pi['honorific'] in ('','NONE',None):
+            pi['honorific'] = ''
+        pi = ' '.join((pi['honorific'],pi['firstname'],pi['lastname'])).strip()
         pi = ', '.join((pi,inst))
     except:
         pi = ''
@@ -349,6 +351,10 @@ def POS_to_rows(filename, poscfg):
             else:
                 nod = {k:v for k,v in zip(pos_keys,nod)}
             nod['pkey'] = '%s: %s' % (config['AORID'],nod['POSName'])
+            if 'Nod' in nod['POSName']:
+                nod['isNod'] = True
+            else:
+                nod['isNod'] = False
             nod.update(config)
             
             nods[idx] = nod
@@ -384,6 +390,7 @@ def GUIDE_to_rows(filename, guidecfg):
             guide['Target'] = target
             guide['pkey'] = '%s: %s' % (aorid,guide['GuidePOSName'])
             guide['planID'] = '_'.join(aorid.split('_')[:-1])
+            guide['isGuide'] = True
             guides[idx] = guide
 
         rows.extend(guides)

@@ -13,7 +13,7 @@ from astropy.table.row import Row
 from collections import deque
 from pathlib import Path
 import subprocess
-#import TEX
+import TEX
 from shutil import copy
 from astropy.utils.console import ProgressBar
 from functools import partial
@@ -97,7 +97,7 @@ def get_raw_AORs(flightid, odir,
     return mis
 
 
-def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID'):
+def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID', guide=False):
     """Get AOR for input leg
 
     Download AOR for flight leg.
@@ -114,16 +114,17 @@ def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID'):
         return None
     
     #print('  Retrieving AOR %s for %s' % (leg['AOR'],leg['LegName']))
+    #aor = dcs.getAORs(['07_0225','07_0225_8'],guide=True,pos=True,as_table=True)
+    #print(aor)
     aor = dcs.getAORs(leg[obsblkkey])
-
-    # Merge mis and aor data
+    
     if isinstance(aor,dict):
         aor = [aor]
 
-    if aor is None:
+    elif aor is None:
         # likely a calibrator
-        print(leg)
         return leg
+
         
     aor = [dict(leg,**a) if a else None for a in aor]
 
@@ -222,6 +223,7 @@ def generate_dossier(flightid, odir,
     legs = [leg for leg in legs if leg is not None]
 
     # download POS file
+    '''
     try:
         pos = dcs.getPOS(flightid,guide=guide)
         guide = pos.guide
@@ -238,6 +240,9 @@ def generate_dossier(flightid, odir,
         guide = None
 
     exit()
+    mis = MIS.as_table(legs)
+    print(mis)
+    exit()
 
     mis.sort(['Leg','AORID'])
     #mis.pprint()
@@ -250,13 +255,27 @@ def generate_dossier(flightid, odir,
     # obsblk comments
     #legs.meta['ObsBlkComments'] = comments
 
+    '''
+
+    # tableify
+    '''
+    tables = list(map(MIS.as_table,legs))
+
+    if guide:
+        for table in tables:
+            aorids = list(table['aorID'])
+            guide = dcs.getPOS(aorids,guide=True,as_table=True)
+            table.guide = guide
+    '''
+    tables = legs
+
     # output tex file
     output = odir/('%s.tex'%flightid)
 
     print()
     #print('Writing to %s...'%output)
     print('Generating %s...' % output)
-    TEX.write_tex_dossier(legs.groups, name, title, output,
+    TEX.write_tex_dossier(tables, name, title, output,
                           template=template,
                           config=config,
                           refresh_cache=refresh_cache,
@@ -345,7 +364,6 @@ def main():
     mcfg.read(args.mcfg)
 
     dcs = DCS.DCS(refresh_cache=args.refresh_cache,modelcfg=mcfg)
-    #db = dcs.db
     register_models(dcs)
 
     args.flightid = args.flightid.upper()
@@ -438,8 +456,8 @@ def main():
     
 
 if __name__ == '__main__':
-    #main()
+    main()
 
-    dcs = DCS.DCS()
-    register_models(dcs)
-    generate_dossier('201910_FO_GIMLI',odir='test2',dcs=dcs,guide=True)
+    #dcs = DCS.DCS()
+    #register_models(dcs)
+    #generate_dossier('201909_HA_FEMKE',odir='test2',dcs=dcs,guide=True)

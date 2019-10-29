@@ -70,6 +70,13 @@ def _is_planID(idstr):
         return True
     return False
 
+def _is_ObsBlk(idstr):
+    if 'OB' in idstr and len(idstr.split('_')) == 4:
+        return True
+    return False
+
+
+
 
 class DCS(object):
     def __init__(self, username=None, password=None,
@@ -382,61 +389,42 @@ class DCS(object):
         return cfile
 
 
-    def getAORs(self, aorID, as_table=False, as_pandas=False, as_json=False, raw=False):
-        """Get AOR row.
-        If aorID is a planID (e.g. 07_0225), all aorIDs in that obs plan will be returned."""
-        if isinstance(aorID,str):
-            # single aor/plan/obsblk
-            planID = _aorID_to_planID(aorID)
+    @staticmethod
+    def as_table(rows):
+        return AOR.as_table(rows)
 
+    @staticmethod
+    def as_pandas(rows):
+        return AOR.as_pandas(rows)
+
+    @staticmethod
+    def as_json(rows):
+        return AOR.as_json(rows)
+    
+    def getAORs(self, search, *args, **kwargs):
+        """Get AOR row.
+        If aorID is a planID (e.g. 07_0225) or ObsBlk (e.g. OB_07_0225_04),
+        all aorIDs in that obs plan will be returned."""
+        if isinstance(search,str):
+            # single aor/plan/obsblk
             if self.refresh_cache:
                 # bypass DB
-                if _is_aorID(aorID):
-                    return self._getObsPlan(planID, aorID=aorID, raw=raw,
-                                            as_table=as_table, as_pandas=as_pandas, as_json=as_json)
-                elif _is_planID(aorID):
-                    return self._getObsPlan(planID, raw=raw,
-                                            as_table=as_table, as_pandas=as_pandas, as_json=as_json)
-                elif _is_ObsBlk(aorID):
-                    return self._getObsPlan(planID, ObsBlk=aorID, raw=raw,
-                                            as_table=as_table, as_pandas=as_pandas, as_json=as_json)
-                else:
-                    return json.dumps(None) if as_json else None
-
-            aors = DCS._query_AOR_table(aorID=aorID)
+                return self._getObsPlan(search,*args,**kwargs)
+            
+            aors = self._query_AOR_table(search, *args, **kwargs)
             if not aors:
-                return self._getObsPlan(planID, aorID=aorID, raw=raw,
-                                        as_table=as_table,as_pandas=as_pandas,as_json=as_json)
+                # search not found in DB
+                return self._getObsPlan(search,*args,**kwargs)
             
         else:
             # many aors/plans
             if self.refresh_cache:
                 # bypass DB, but don't perform query yet
-                planIDs = (_aorID_to_planID(a) for a in aorID)
-                cfiles = [self._getObsPlan(planID, raw=True) for planID in planIDs]
-            aors = DCS._query_AOR_table(aorID=aorID)
+                cfiles = [self._getObsPlan(s,raw=True) for s in search]
+            aors = self._query_AOR_table(search,*args,**kwargs)
             if not aors:
-                planIDs = (_aorID_to_planID(a) for a in aorID)
-                cfiles = [self._getObsPlan(planID, raw=True) for planID in planIDs]
-                aors = DCS._query_AOR_table(aorID=aorID)
-            aors = aors if aors else None
-
-        if raw:
-            aors = list(aors)
-            fnames = {aor['FILENAME'] for aor in aors}
-            if len(fnames) == 1:
-                return fnames.pop()
-            else:
-                return fnames
-
-        if as_table:
-            return AOR.as_table(aors)
-
-        if as_pandas:
-            return AOR.as_pandas(aors)
-            
-        if as_json:
-            return AOR.as_json(aors)
+                cfiles = [self._getObsPlan(search,raw=True) for s in search]
+                aors = self._query_AOR_table(search,*args,**kwargs)
         return aors
 
     def _getAORs_by_planID(self, planID, as_json=False):
@@ -445,7 +433,7 @@ class DCS(object):
             # bypass DB
             return self._getObsPlan(planID,as_json=as_json)
         
-        aors = DCS._query_AOR_table(planID=planID)
+        aors = self._query_AOR_table(planID=planID)
         if not aors:
             return self._getObsPlan(planID,as_json=as_json)
 
@@ -462,7 +450,7 @@ class DCS(object):
             # bypass DB
             return self._getObsPlan(planID,ObsBlk=ObsBlk,as_json=as_json)
 
-        aors = DCS._query_AOR_table(ObsBlk=ObsBlk)
+        aors = self._query_AOR_table(ObsBlk=ObsBlk)
         if not aors:
             return self._getObsPlan(planID,ObsBlk=ObsBlk,as_json=as_json)
 
@@ -470,23 +458,83 @@ class DCS(object):
             return json.dumps(aors)
         return aors
 
-    def getPOS(self, aorID, guide=False, as_table=False, as_pandas=False, as_json=False, raw=False):
-        if isinstance(aorID,str):
-            # single aor/plan/obsblk
-            planID = _aorID_to_planID(aorID)
+    def _get(self, search, clsname, *args, **kwargs):
+        """Unified interface to DB and DCS fallback"""
+        DB_funcs  = {'AOR':self._query_AOR_table,
+                     'POS':self._query_POS_table}
+        DCS_funcs = {'AOR':self._getObsPlan,
+                     'POS':self._getPOS}
 
+        getDB = DB_funcs[clsname]
+        getDCS = DCS_funcs[clsname]
+
+        if isinstance(search,str):
+            # single aor/plan/obsblk
             if self.refresh_cache:
                 # bypass DB
-                if _is_aorID(aorID):
-                    return self._getPOS(planID, aorID=aorID, guide=guide, raw=raw,
-                                        as_table=as_table, as_pandas=as_pandas, as_json=as_json)
-                elif _is_planID(aorID):
-                    return self._getPOS(planID, guide=guide, raw=raw,
-                                        as_table=as_table, as_pandas=as_pandas, as_json=as_json)
-                else:
-                    return json.dumps(None) if as_json else None
+                return getDCS(search,*args,**kwargs)
+            
+            res = getDB(search, *args, **kwargs)
+            if not res:
+                # search not found in DB
+                return getDCS(search,*args,**kwargs)
+            
+        else:
+            # many aors/plans
+            if self.refresh_cache:
+                # bypass DB, but don't perform query yet
+                cfiles = [getDCS(s,raw=True) for s in search]
+            res = getDB(search,*args,**kwargs)
+            if not res:
+                cfiles = [getDCS(search,raw=True) for s in search]
+                res = getDB(search,*args,**kwargs)
+        return res
 
-            pos = DCS._query_POS_table(aorID=aorID,guide=guide)
+    def _proc_res(self, res, cls, *args, **kwargs):
+        """Unified results from DB"""
+
+        if kwargs.get('sql'):
+            return res
+
+        #sql = str(res)
+        
+        rows = list(res.dicts())
+        rows = rows if rows else None
+        if rows is None:
+            return None
+
+        if kwargs.get('raw'):
+            fnames = {row['FILENAME'] for row in rows}
+            if len(fnames) == 1:
+                return fnames.pop()
+            else:
+                return fnames
+
+        #for row in rows:
+        #    row['sql'] = sql
+
+        if kwargs.get('as_table'):
+            return cls.as_table(rows)
+
+        if kwargs.get('as_pandas'):
+            return cls.as_pandas(rows)
+            
+        if kwargs.get('as_json'):
+            return cls.as_json(rows)
+            
+        return rows
+
+        
+
+    def getPOS(self, search, *args, **kwargs):
+        '''
+        if isinstance(search,str):
+            # single aor/plan/obsblk
+            if self.refresh_cache:
+                # bypass DB
+                return self._getPOS(search, *args, **kwargs)
+
+            pos = DCS._query_POS_table(search, *args, **kwargs)
             if not pos:
                 return self._getPOS(planID, aorID=aorID, guide=guide, raw=raw,
                                     as_table=as_table,as_pandas=as_pandas,as_json=as_json)
@@ -497,7 +545,8 @@ class DCS(object):
                 # bypass DB, but don't perform query yet
                 planIDs = (_aorID_to_planID(a) for a in aorID)
                 cfiles = [self._getPOS(planID, raw=True) for planID in planIDs]
-            pos = DCS._query_POS_table(aorID=aorID)
+
+            pos = DCS._query_POS_table(aorID=aorID,guide=guide)
             if not pos:
                 planIDs = (_aorID_to_planID(a) for a in aorID)
                 cfiles = [self._getObsPlan(planID, raw=True) for planID in planIDs]
@@ -521,6 +570,13 @@ class DCS(object):
         if as_json:
             return POS.as_json(pos)
         return pos
+        '''
+        if isinstance(search,str):
+            search = _aorID_to_planID(search)
+        else:
+            search = [_aorID_to_planID(s) for s in search]
+        # search must be a planID
+        return self._get(search, 'POS', *args, **kwargs)
         
 
     def getFlightPlan(self, flightid, ObsBlk=None,
@@ -566,8 +622,26 @@ class DCS(object):
 
         return self.getFlightPlan(flightids, as_json=as_json)
 
-    @staticmethod
-    def _query_AOR_table(aorID=None,planID=None,ObsBlk=None):
+    
+    def _query_AOR_table(self, search, *args, **kwargs):
+        if isinstance(search,str):
+            search = [search]
+            
+        # query multiple, and allow for planIDs, ObsBlks
+        if kwargs.get('pos'):
+            # BROKEN!!!
+            aors = AOR.select(AOR,POS.POSName).join(POS).where((AOR.aorID.in_(search))  |
+                                                               (AOR.planID.in_(search)) |
+                                                               (AOR.ObsBlk.in_(search))).order_by(AOR.ObsBlk,AOR.order,AOR.aorID)
+        else:
+            aors = AOR.select().where((AOR.aorID.in_(search))  |
+                                      (AOR.planID.in_(search)) |
+                                      (AOR.ObsBlk.in_(search))).order_by(AOR.ObsBlk,AOR.order,AOR.aorID)
+
+        return self._proc_res(aors,AOR, *args, **kwargs)
+        
+
+    def _query_AOR_table_old(self,aorID=None,planID=None,ObsBlk=None,pos=False,guide=False):
         """Perform DB lookup on AOR table"""
         if aorID:
             if isinstance(aorID,str):
@@ -576,12 +650,32 @@ class DCS(object):
                     try:
                         aor = AOR.get(AOR.aorID==aorID)
                         aors = aor.__data__
-                    except:
+
+                        if pos:
+                            # get POSname
+                            prows = self.getPOS(aorID)
+                            if prows:
+                                try:
+                                    prow = list(filter(lambda x:not x['isNod'],prows))[0]
+                                    posname = prow['POSName']
+                                except IndexError:
+                                    posname = ''
+                            else:
+                                posname = ''
+                        aors['POSname'] = posname
+                                    
+                            
+                        if guide:
+                            # attach guide stars to aors
+                            grows = self.getPOS(aorID,guide=guide)
+                            if grows:
+                                aors['GUIDESTARS'] = grows
+                    except RuntimeError:
                         aors = None
                 elif _is_planID(aorID):
-                    return DCS._query_AOR_table(planID=aorID)
+                    return self._query_AOR_table(planID=aorID, guide=guide, pos=pos)
                 elif 'OB' in aorID:
-                    return DCS._query_AOR_table(ObsBlk=aorID)
+                    return self._query_AOR_table(ObsBlk=aorID, guide=guide, pos=pos)
                 else:
                     return None
                     
@@ -593,6 +687,30 @@ class DCS(object):
                 #aors = [aor.__data__ for aor in aors]
                 aors = list(aors)
                 aors = aors if aors else None
+                if pos:
+                    # get POSname
+                    prows = self.getPOS(aorID)#,guide=guide)
+                    if prows:
+                        prow = list(filter(lambda x:not x['isNod'],prows))
+                        for aor in aors:
+                            p = list(filter(lambda x:x['AORID'] == aor['aorID'],prow))
+                            if p:
+                                posname = p[0]['POSName']
+                            else:
+                                posname = ''
+                            aor['POSName'] = posname
+                    else:
+                        for aor in aors:
+                            aor['POSName'] = ''
+
+                if guide:
+                    # attach guide stars to aors
+                    grows = self.getPOS(aorID,guide=guide)
+                    if grows:
+                        for aor in aors:
+                            g = list(filter(lambda x:x['AORID'] == aor['aorID'],grows))
+                            if g:
+                                aor['GUIDESTARS'] = g
                 
         elif planID:
             if isinstance(planID,str):
@@ -601,14 +719,65 @@ class DCS(object):
                 aors = AOR.select().where(AOR.planID.in_(planID)).order_by(AOR.ObsBlk,AOR.order,AOR.aorID).dicts()
             aors = list(aors)
             aors = aors if aors else None
+
+            if pos:
+                # get POSname
+                prows = self.getPOS(planID)
+                if prows:
+                    prow = list(filter(lambda x:not x['isNod'],prows))
+                    for aor in aors:
+                        p = list(filter(lambda x:x['AORID'] == aor['aorID'],prow))
+                        if p:
+                            posname = p[0]['POSName']
+                        else:
+                            posname = ''
+                        aor['POSName'] = posname
+                else:
+                    for aor in aors:
+                        aor['POSName'] = ''
+
+            if guide:
+                # attach guide stars to aors
+                grows = self.getPOS(planID,guide=guide)
+                if grows:
+                    for aor in aors:
+                        g = list(filter(lambda x:x['AORID'] == aor['aorID'],grows))
+                        if g:
+                            aor['GUIDESTARS'] = g
+            
         elif ObsBlk:
             if isinstance(ObsBlk,str):
                 aors = AOR.select().where(AOR.ObsBlk==ObsBlk).order_by(AOR.ObsBlk,AOR.order,AOR.aorID).dicts()
             else:
                 aors = AOR.select().where(AOR.ObsBlk.in_(ObsBlk)).order_by(AOR.ObsBlk,AOR.order,AOR.aorID).dicts()
-            #aors = [aor.__data__ for aor in aors]
             aors = list(aors)
             aors = aors if aors else None
+            
+            if pos:
+                # get POSname
+                prows = self.getPOS(ObsBlk)
+                if prows:
+                    prow = list(filter(lambda x:not x['isNod'],prows))
+                    for aor in aors:
+                        p = list(filter(lambda x:x['AORID'] == aor['aorID'],prow))
+                        if p:
+                            posname = p[0]['POSName']
+                        else:
+                            posname = ''
+                        aor['POSName'] = posname
+                else:
+                    for aor in aors:
+                        aor['POSName'] = ''
+
+            if guide:
+                # attach guide stars to aors
+                grows = self.getPOS(ObsBlk,guide=guide)
+                if grows:
+                    for aor in aors:
+                        g = list(filter(lambda x:x['AORID'] == aor['aorID'],grows))
+                        if g:
+                            aor['GUIDESTARS'] = g
+            
         else:
             aors = None
         return aors
@@ -643,106 +812,45 @@ class DCS(object):
             legs = None
         return legs
 
-    @staticmethod
-    def _query_POS_table(aorID=None,planID=None,target=None,guide=False):
-        if aorID:
-            if isinstance(aorID,str):
-                # single aorID
-                if _is_aorID(aorID):
-                    if guide:
-                        pos = POS.select(POS,GUIDE).join(GUIDE).where(POS.AORID == aorID).dicts()
-                    else:
-                        pos = POS.select().where(POS.AORID == aorID).dicts()
-               # else:
-               #     pos = POS.select(POS,GUIDE).join(GUIDE).where(POS.AORID.in_(aorID)).order_by(POS.POSName).dicts()
-               # pos = list(pos)
-               # pos = pos if pos else None
-                elif _is_planID(aorID):
-                    return DCS._query_POS_table(planID=aorID,guide=guide)
-                else:
-                    pos = None
-            else:
-                if guide:
-                    pos = POS.select(POS,GUIDE).join(GUIDE).where((POS.AORID.in_(aorID)) |
-                                                                  (POS.planID.in_(planID))).dicts()
-                else:
-                    pos = POS.select().where((POS.AORID.in_(aorID)) |
-                                             (POS.planID.in_(planID))).dicts()
-            pos = list(pos)
-            pos = pos if pos else None
-                
-        elif planID:
-            if isinstance(planID,str):
-                # single planID
-                if guide:
-                    pos = POS.select(POS,GUIDE).join(GUIDE).where(POS.planID == planID).dicts()
-                else:
-                    pos = POS.select().where(POS.planID == planID).dicts()
-            else:
-                if guide:
-                    pos = POS.select(POS,GUIDE).join(GUIDE).where((POS.AORID.in_(aorID)) |
-                                                                  (POS.planID.in_(planID))).dicts()
-                else:
-                    pos = POS.select().where((POS.AORID.in_(aorID)) |
-                                             (POS.planID.in_(planID))).dicts()
-            pos = list(pos)
-            pos = pos if pos else None
-            
-        elif target:
-            if isinstance(target,str):
-                # single target
-                if guide:
-                    pos = POS.select(POS,GUIDE).join(GUIDE).where(POS.Target == target).order_by(POS.POSName).dicts()
-                else:
-                    pos = POS.select().where(POS.Target == target).order_by(POS.POSName).dicts()
-                    
-            else:
-                if guide:
-                    pos = POS.select(POS,GUIDE).join(GUIDE).where(POS.Target.in_(target)).order_by(POS.POSName).dicts()
-                else:
-                    pos = POS.select().where(POS.Target.in_(target)).order_by(POS.POSName).dicts()
-                    
-            pos = list(pos)
-            pos = pos if pos else None
+    def _query_POS_table(self, search, guide, *args, **kwargs):
+        if isinstance(search,str):
+            search = [search]
+
+        if guide:
+            pos = POS.select(POS,GUIDE).join(GUIDE).switch(POS).where((POS.AORID.in_(search)) | (POS.planID.in_(search)))
         else:
-            pos = None
-        return pos
+            pos = POS.select().where((POS.AORID.in_(search)) | (POS.planID.in_(search)))
+
+
+        return self._proc_res(pos,POS, *args, **kwargs)
+        
+            
             
 
     def _getObsPlan(self, planID,
                     rel='observationPlanning/DbProxy/getObsPlanAORs.jsp',
                     form='DIRECT',
                     raw=False,
-                    aorID=None,
-                    ObsBlk=None,
                     as_table=False,
                     as_pandas=False,
                     as_json=False,
+                    sql=False,
                     insert=True):
         """Download AOR xml, and store in database."""
+        planID = _aorID_to_planID(planID)
         query = (self.dcsurl/rel).with_query({'origin':'GI','obsplanID':planID})
         cfile = self._queryDCS(query,form)
 
         aorcfg = self.mcfg['AOR']
         rows = AOR.to_rows(cfile, aorcfg)
-        if not rows:
-            return None
-        if insert:
+        if rows and insert:
             AOR.replace_rows(self.db, rows)
-        
+            
         if raw:
             return cfile
 
-        aors = DCS._query_AOR_table(aorID=aorID,ObsBlk=ObsBlk,planID=planID)
-
-        if as_table:
-            return AOR.as_table(aors)
-
-        if as_pandas:
-            return AOR.as_pandas(aors)
-
-        if as_json:
-            return AOR.as_json(aors)
+        aors = self._query_AOR_table(planID, sql=sql, raw=raw,
+                                     as_table=as_table,as_json=as_json,as_pandas=as_pandas)
         return aors
         
     def _getObsPlanXML(self, planID,
@@ -823,7 +931,7 @@ class DCS(object):
         if raw:
             return cfile
 
-        legs = DCS._query_MIS_table(FlightPlan=flightid,ObsBlk=ObsBlk)
+        legs = DCS._query_MIS_table(flightid=flightid,ObsBlk=ObsBlk)
 
         if as_table:
             return MIS.as_table(legs)
@@ -837,14 +945,14 @@ class DCS(object):
 
 
     def _getPOS(self,planID,
-                aorID=None,
                 rel='observationPlanning/SaveTargetPos.jsp',
                 form='DIRECT',
-                raw=True,
                 guide=False,
+                raw=True,
                 as_table=False,
                 as_pandas=False,
                 as_json=False,
+                sql=False,
                 insert=True):
         '''Download pos file and store in both POS and GUIDE tables'''
 
@@ -866,27 +974,23 @@ class DCS(object):
         poscfg = self.mcfg['POS']
         guidecfg = self.mcfg['GUIDE']
 
-        rows = POS.to_rows(cfile, poscfg)
-        if rows and insert:
-            POS.replace_rows(self.db, rows)
+        prows = POS.to_rows(cfile, poscfg)
+        if prows and insert:
+            POS.replace_rows(self.db, prows)
 
-        rows = GUIDE.to_rows(cfile, guidecfg)
-        if rows and insert:
-            GUIDE.replace_rows(self.db, rows)
+        grows = GUIDE.to_rows(cfile, guidecfg)
+        if grows and insert:
+            GUIDE.replace_rows(self.db, grows)
+
+        if not prows:
+            return None
 
         if raw: 
             return cfile
 
-        pos = DCS._query_POS_table(aorID=aorID, planID=planID, guide=guide)
-
-        if as_table:
-            return POS.as_table(pos)
-
-        if as_pandas:
-            return POS.as_pandas(pos)
-
-        if as_json:
-            return POS.as_json(pos)
+        #pos = DCS._query_POS_table(aorID=aorID, planID=planID, guide=guide)
+        pos = self._query_POS_table(planID, guide=guide, sql=sql, raw=raw,
+                                    as_table=as_table,as_json=as_json,as_pandas=as_pandas)
         return pos
 
     def _getPOSOld(self,flightid,
