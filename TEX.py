@@ -398,107 +398,81 @@ def make_overview(leg, tex=True):
     '''Make table of overview stats for leg'''
 
     # overview cols to extract
-    ocols = ['Start','ObsDur','Target','ObsBlk','Priority','RA','DEC']
+    ocols = ('Start','ObsDur','Target','ObsBlk','Priority','RA','DEC')
 
     # metacols
     hcols = ('Leg','Name','PI')
+    mcols = ('Elev','ROF','ROFRT','MoonAngle','MoonIllum','THdg','THdgRT')
 
     l = leg[0]
-    tab = {k:l.get(k,'') for k in ocols}
+    overview = {k:l.get(k,'') for k in ocols}
 
     # make metadata
     if tex:
-        tab['header'] = '\\captionline{Leg %i (%s)}{%s}' % (l['Leg'],l['Name'],l['PI'])
+        overview['header'] = '\\captionline{Leg %i (%s)}{%s}' % (l['Leg'],l['Name'],l['PI'])
     else:
-        tab['header'] ={k:l.get(k,'') for k in hcols}
-    exit()
-
-    overview = {col:tab[col][0] for col in ocols}
-    overview['ObsBlock'] = tab['ObsBlk'][0]
-
-    # get PI from investigators
-    PI = tab.meta.get('LEG%iPI'%tab['Leg'][0])
-    if PI:
-        try:
-            inst = PI.get('institution','')
-            inst = ' '.join(inst.split(' ')[0:6]) # some universities are looonnnggg
-            PI['firstname'] = '%s.\\'%PI['firstname'][0]
-            PI = '{firstname} {lastname}'.format(**PI)
-        except (KeyError,IndexError):
-            inst = ''
-            PI = ''
-    else:
-        inst = ''
-        PI = ''
-
-    # get metadata (mis file params)
-    meta = {key:tab.meta['Leg%i'%tab['Leg'][0]][key] for key in metakeys}
-    meta['Inst'] = inst
-    meta['GI'] = PI
-
-    # make overview table
-    overview = Table([overview])
-
-    # make caption
-    meta['legName'] = overview['LegName'][0]
-    if inst:
-        caption = '\\captionline{%s}{%s, %s}' % (meta['legName'],
-                                                 meta['GI'],meta['Inst'])
-    else:
-        caption = '\\captionline{%s}{%s}' % (meta['legName'],
-                                             meta['GI'])
-    meta['caption'] = caption.replace('_','\_')
+        overview['header'] ={k:l.get(k,'') for k in hcols}
 
     # footer holds mis file info
-    footer = ['%s: %s'%(key,str(meta[key])) for key in metakeys[0:3]]
-    footer = '\quad '.join(footer)
-    footer2 = ['%s: %s'%(key,str(meta[key])) for key in metakeys[-4:]]
-    footer2 = '\quad '.join(footer2)
-    #footer.extend([r'\\','\n'])
-    #footer.extend(['%s: %s'%(key,str(meta[key])) for key in metakeys[-4:]])
-    meta['footer'] = '%s\\\\\n%s'%(footer,footer2)
+    footer = {}
+    for k in mcols:
+        if '%s_start'%k in l:
+            if 'RT' in k:
+                footer[k] = '[%+.2f, %+.2f]' % (l['%s_start'%k],l['%s_end'%k])
+            else:
+                footer[k] = '[%.1f, %.1f]' % (l['%s_start'%k],l['%s_end'%k])
+        else:
+            footer[k] = l[k]
 
-    # weird rate2 following THdg
-    meta['footer'] = meta['footer'].replace('rate2','rate')
-    meta['footer'] = meta['footer'].replace('%','\%')
-    meta['footer'] = r'\\[0.5em]' + '\n' + meta['footer']
+    if tex:
+        footer1 = '\quad '.join(['%s: %s'%(k,footer[k]) for k in mcols[0:3]])
+        footer1 = ' '.join((footer1,'deg/min'))
+        footer2 = '\quad '.join(['%s: %s'%(k,footer[k]) for k in mcols[-4:]])
+        footer2 = ' '.join((footer2,'deg/min'))
+        footer = '%s\\\\\n%s'%(footer1,footer2)
+        footer = footer.replace('ROFRT','rate') \
+                       .replace('THdgRT','rate') \
+                       .replace('Moon','Moon ')
 
-    overview.rename_column('RA_obs','RA')
-    overview.rename_column('DEC_obs','DEC')
-    overview = overview[['Start','Obs Dur','ObsBlock','Target','RA','DEC']]
-    overview.meta = meta
+    overview['footer'] = footer
 
-    # set formatter to replace '_' with '\_'
-    for col in ['ObsBlock','Target']:
-        overview[col].format = COL_FORMATTER
+    if tex:
+        overview = generate_overview_tex(overview)
     
     return overview
 
-def generate_overview_tex(overview):
+
+def generate_overview_tex(overview, metakeys=('header','footer')):
     '''Generate latex string of overview table'''
 
     # col align param must be special for boldface header line
-    col_align = ['c']*len(overview.colnames)
+    col_align = ['c']*len(overview)
     col_align = '|^'.join(col_align)
     col_align = '|$%s|'%col_align
 
-    if len(overview['Target'][0]) > 15:
+    if len(overview['Target']) > 15:
         # target is too long, so make cells smaller
         preamble = r'\setlength{\tabcolsep}{0.5em}'
-        overview.meta['footer'] += '\n'+r'\setlength{\tabcolsep}{1em}'
+        overview['footer'] += '\n'+r'\setlength{\tabcolsep}{1em}'
     else:
         preamble = ''
 
-    # rename colnames to have headercolor
+    # make meta dict
+    meta = {mkey:overview.pop(mkey) for mkey in metakeys}
+
+    # convert to table
+    overview = Table(data=[overview],names=overview.keys(),meta=meta)
+    # rename cols to have headercolor
     for col in overview.colnames:
-        newcol = '\\cellcolor{headercolor}%s'%col
+        newcol = '\\cellcolor{headercolor}%s' % col
         overview.rename_column(col,newcol)
-        
+
     with StringIO() as f:
+        
         overview.write(f,format='latex',
                        latexdict={'header_start':r'\hline\rowstyle{\bfseries}',
                                   'tablealign':'h!',
-                                  'caption':overview.meta['caption'],
+                                  'caption':overview.meta['header'],
                                   'col_align':col_align,
                                   'data_end':'\hline',
                                   'preamble':preamble,
@@ -506,8 +480,150 @@ def generate_overview_tex(overview):
         texcode = f.getvalue()
     return texcode
 
-def make_details(tab, sort=None, latex_format=True):
+def make_details(tab, tex=False, faor=False):
     '''Make observation details'''
+
+    instrument = tab[0]['InstrumentName']
+    if instrument == 'HAWC_PLUS':
+        keys = ('ObsPlanConfig','aorID','Name','InstrumentSpectralElement1','Repeat','NodTime','ChopThrow','ChopAngle','ScanTime','ScanAmplitudeEL','ScanAmplitudeXEL','ScanRate','ChopAngleCoordinate')
+        key_map = {'ObsPlanConfig':'Mode','aorID':'AORID','ChopAngleCoordinate':'Sys','InstrumentSpectralElement1':'Band/Bore','ScanAmplitudeEL':'ScanAmp'}
+
+        # replace some values
+        for t in tab:
+            # change coordsys
+            sys = t['ChopAngleCoordinate']
+            t['ChopAngleCoordinate'] = 'ERF' if sys == 'Sky' else 'SIRF'
+
+            # store filter for boresite
+            filt = t['InstrumentSpectralElement1'][-1]
+
+            # scan mode
+            if t['ObsPlanMode'] == 'OTFMAP':
+                # combine scan amps
+                el,xel = t['ScanAmplitudeEL'], t['ScanAmplitudeXEL']
+                if el == xel:
+                    t['ScanAmplitudeEL'] = str(el)
+                else:
+                    t['ScanAmplitudeEL'] = '%s/%s'%(el,xel)
+
+                # change scan modes
+                if t['ObsPlanConfig'] == 'TOTAL_INTENSITY':
+                    if t['ScanType'] == 'Box':
+                        t['ObsPlanConfig'] = 'BOX'
+                    elif t['ScanType'] == 'Lissajous':
+                        t['ObsPlanConfig'] = 'LIS'
+                    else:
+                        t['ObsPlanConfig'] = '?'
+
+                    t['InstrumentSpectralElement1'] = '/'.join((filt,'Open'))
+                        
+                elif t['ObsPlanConfig'] == 'POLARIZATION':
+                    t['ObsPlanConfig'] = 'LISPOL'
+                    t['InstrumentSpectralElement1'] = '/'.join((filt,filt))
+                else:
+                    t['ObsPlanConfig'] = '?'
+
+            # polarimetry
+            else:
+                t['ObsPlanConfig'] = 'POL'
+                t['Band'] = '/'.join((filt,filt))
+                
+        # keep certain keys
+        detail = [{key:t[key] for key in keys} for t in tab]
+
+        # make table
+        detail = Table(detail,names=keys)
+
+        # rename columns
+        detail.rename_columns(tuple(key_map.keys()),tuple(key_map.values()))
+
+        # remove extra scanamp col
+        detail.remove_column('ScanAmplitudeXEL')
+
+        # if all modes are scanning, drop chop/nod params
+        if all((mode in ('LIS','LISPOL','BOX') for mode in detail['Mode'])):
+            detail.remove_columns(('NodTime','ChopThrow','ChopAngle','Sys'))
+        # if all modes are pol, drop scan params
+        if all(mode == 'POL' for mode in detail['Mode']):
+            detail.remove_columns(('ScanTime','ScanAmp','ScanRate'))
+
+        # if any dithering, make dither footer
+        unit_map = {'Sky':'arcsec','Array':'pix'}
+        if any((t.get('DitherPattern') for t in tab)):
+            dithscale = (t.get('DitherScale') for t in tab)
+            dithunit = (unit_map.get(t.get('DitherCoord')) for t in tab)
+            dithband = (t['InstrumentSpectralElement1'][-1] for t in tab)
+            footer = ['\t%s: %i %s' % (band,scale,unit) for band,scale,unit \
+                      in zip(dithband,dithscale,dithunit) if scale]
+            footer = set(footer)
+            if len(footer) == 1:
+                footer = footer.pop()
+            else:
+                footer = '\\\\\n'.join(footer)
+            footer = 'dither\quad\quad %s\\\\'%footer
+            detail.meta['footer'] = footer
+
+    
+
+    elif instrument == 'FORCAST':
+        keys = ['ObsPlanConfig','ObsPlanMode','aorID','Name',
+                'InstrumentSpectralElement1','InstrumentSpectralElement2',
+                'Repeat','NodTime','TotalTime',
+                'ChopThrow','ChopAngle','ChopAngleCoordinate',
+                'NodThrow','NodAngle']
+        key_map = {'ObsPlanConfig':'Mode','aorID':'AORID','ObsPlanMode':'Type','ChopAngleCoordinate':'Sys','InstrumentSpectralElement1':'Band','InstrumentSpectralElement2':'Slit'}
+        faor_keys = ['Nod','Dithers','Scale','IntTime','FDUR','TLOS']
+
+        for t in tab:
+            sys = t['ChopAngleCoordinate']
+            t['ChopAngleCoordinate'] = 'ERF' if sys == 'Sky' else 'SIRF'
+
+            # shorten filter config
+            t['InstrumentSpectralElement1'] = t['InstrumentSpectralElement1'].replace('FOR_','')
+            t['InstrumentSpectralElement2'] = t['InstrumentSpectralElement2'].replace('FOR_','')
+
+            # combine filters if dual mode
+            if 'DUAL' in t.get('ObsPlanConfig',''):
+                t['InstrumentSpectralElement1'] = '/'.join((t['InstrumentSpectralElement1'],
+                                                            t['InstrumentSpectralElement2']))
+                t['InstrumentSpectralElement2'] = None
+
+            # drop second element if OPEN
+            elif t['InstrumentSpectralElement2'] == 'OPEN':
+                t['InstrumentSpectralElement2'] = None
+
+            # shorten chop mode
+            if t['NodType'] == 'Nod_Match_Chop':
+                t['ObsPlanMode'] = 'NMC'
+            
+        # keep certain keys
+        if 'FAORfile' in tab[0]:
+            keys += faor_keys
+
+        detail = [{key:t[key] for key in keys} for t in tab]
+
+        # make table
+        detail = Table(detail,names=keys)
+
+        # rename columns
+        detail.rename_columns(tuple(key_map.keys()),tuple(key_map.values()))
+
+        # if all modes are NMC, drop nod params
+        if all((mode == 'NMC' for mode in detail['Type'])):
+            detail.remove_columns(('NodAngle','NodThrow'))
+
+        detail.pprint()
+        print(detail.colnames)
+        exit()
+            
+                        
+
+    else:
+        raise NotImplementedError('Instrument %s not implemented' % instrument)
+    print(tab)
+        
+    exit()
+    
     dithoffset = tab['Dith Offset']
     dithunit = tab['Dith Unit'] if 'Dith Unit' in tab.colnames else tab['Num Dith']
 
@@ -1352,7 +1468,16 @@ def hawc_sio_comments(table):
     
     return comment
     
-    
+
+def match_FAORs(tables,dcs):
+    aorIDs = set((row['aorID'] for table in tables for row in table))
+    faors = dcs.getFAORs(aorIDs,match=True)
+
+    for table in ProgressBar(tables):
+        for row in table:
+            row.update(faors.get(row['aorID']))
+    return tables
+
 def get_FAOR_map(faordir,keys=None,label=''):
     '''Locate faor files and return file mapping with aorid'''
     #print('Locating .faor files in %s...'%faordir)
@@ -1376,6 +1501,7 @@ def get_FAOR_map(faordir,keys=None,label=''):
 def write_tex_dossier(tables, name,title,filename,
                       template='template.tex',
                       config=None,
+                      mconfig=None,
                       refresh_cache=False,
                       guide=None,
                       faor=False,
@@ -1387,6 +1513,7 @@ def write_tex_dossier(tables, name,title,filename,
                       sio=False,
                       savefits=False,
                       irsurvey=None,
+                      tex=True,
                       writetex=True):
     '''Write dossier pages for each table in tables'''
 
@@ -1406,7 +1533,7 @@ def write_tex_dossier(tables, name,title,filename,
     #fid = tables[0].meta['Flight Plan ID']
     if not dcs:
         # initialize DCS link
-        dcs = DCS(refresh_cache=refresh_cache)
+        dcs = DCS(refresh_cache=refresh_cache,modelcfg=mconfig)
     #utctabs = d.getFlightPlan(fid, local=local, utctab=True)
     #utctabs = list(filter(lambda x:'Leg' in x.meta, utctabs))
 
@@ -1500,33 +1627,10 @@ def write_tex_dossier(tables, name,title,filename,
 
 
     if faor:
-        # attach faor information
+        # merge faor information
         #  locate faors
         print('Matching faors to AORIDs...')
-        for table in ProgressBar(tables):
-            faormap = get_FAOR_map(Path(filename).parent/'faors')
-            #faormap = {}
-            keys = ['Leg%02d__%s'%(row['Leg'],row['_AORID']) for row in table]
-            for idx,tup in enumerate(zip(table,keys)):
-                row,key = tup
-                if 'INTERVALS' in table.meta and table.meta['INTERVALS'].get(key):
-                    # intervals has been split, so get files with specific label
-                    #print(key)
-                    label = table.meta['INTERVALS'].get(key)['label'][idx]
-                else:
-                    label = ''
-
-                if 'FAORDIRS' in table.meta and table.meta['FAORDIRS'].get(key):
-                    #if 'CFG' in row.meta and 'faordir' in row.meta['CFG']:
-                    fdir = table.meta['FAORDIRS'].get(key)
-                    fdir = Path(filename).parent/fdir
-                    #key = 'Leg%02d__%s'%(row['Leg'],row['_AORID'])
-                else:
-                    fdir = Path(filename).parent/'faors'
-                fmap = get_FAOR_map(fdir,keys=key,label=label)
-                faormap.update(fmap)
-            faorfiles = [faormap.get(key) for key in keys]
-            table.add_column(Column(faorfiles,name='FAORfile'))
+        tables = match_FAORs(tables,dcs)
 
     # remove CFG from rows
     '''
@@ -1538,12 +1642,12 @@ def write_tex_dossier(tables, name,title,filename,
     '''    
     # make overview tables
     #overviews = [make_overview(tab) for tab in tables]
-    print('Writing summary table...')
+    print('Generating overview...')
+    over_func = partial(make_overview,tex=tex)
+    overviews = ProgressBar.map(over_func,tables,multiprocess=True)
+    #legnames = [o.meta['legName'].replace('_','\_') for o in overviews]
+    #overviews = ProgressBar.map(generate_overview_tex, overviews, multiprocess=True)
 
-    overviews = ProgressBar.map(make_overview,tables,multiprocess=False)
-    exit()
-    legnames = [o.meta['legName'].replace('_','\_') for o in overviews]
-    overviews = [generate_overview_tex(overview) for overview in overviews]
 
     # make details tables
     #details = [make_details(tab) for tab in tables]
@@ -1554,7 +1658,9 @@ def write_tex_dossier(tables, name,title,filename,
     #    table.meta = None
 
     mp = not DEBUG
-    details = ProgressBar.map(make_details,tables,multiprocess=mp)
+    details = ProgressBar.map(make_details,tables,multiprocess=False)
+
+    exit()
     details = [pickle.loads(detail) for detail in details]
     #for table,meta in zip(tables,metas):
     #    table.meta = meta

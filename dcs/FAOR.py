@@ -10,6 +10,7 @@ import sys
 import numpy as np
 import astropy.units as u
 from astropy.table import Table
+from functools import partial
 
 KEYS = ['config','run','NODDWELL','REPEATS','loop','endloop','STOP','rewind']
 CKEYS = ('Flight','Leg','Leg Dur','Obs Dur','Tot Dur','Start','ROF')
@@ -391,6 +392,8 @@ class FAOR(object):
                 if 'DITHER2' in self.config[ii]:
                     scale = [np.abs(np.rint(float(x))) for x in self.config[ii]['DITHER2'].split()]
                     dets['DITHSCALE'] = int(np.max(scale))
+                else:
+                    dets['DITHSCALE'] = None
 
                 meta.update(**dets)
 
@@ -413,6 +416,12 @@ class FAOR(object):
                 tabs.append(None)
         return list(tabs)
 
+    def get_comments_as_dicts(self):
+        tabs = self.get_comments_as_tables()
+        dicts = [{col:t[col][0] for col in t.colnames} for t in tabs]
+        for d,t in zip(dicts,tabs):
+            d.update(t.meta)
+        return dicts
                 
 
         
@@ -758,12 +767,13 @@ def look_ahead(configs, runs):
 
     return runs
 
-def proc_aorid(aorfile, PropID, combo):
+def proc_aorid(combo, vector, PropID):
     '''Process aorids in configs'''
-    tree = ET.parse(aorfile)
-    vector = tree.find('list/vector')
+    #tree = ET.parse(aorfile)
+    #vector = tree.find('list/vector')
+    vector = deepcopy(vector)
     requests = vector.findall('Request')
-
+    
     # remove non-relevant AORs
     for elem in requests:
         name = elem.find('target/name').text
@@ -844,8 +854,10 @@ def AOR_to_FAORdicts(aorfile, aorids=None, comment=False):
         PropID = "00_0000"    # indicates no PropID
 
     # Loop over Target-Instrument combo
-    faors = (proc_aorid(aorfile, PropID, combo) for combo in target_inst)
-    faors = [FAOR(root,preamble,config,run) for root,preamble,config,run in faors]
+    proc_func = partial(proc_aorid,vector=vector,PropID=PropID)
+    #faors = (proc_aorid(tree, PropID, combo) for combo in target_inst)
+    faors = map(proc_func,target_inst)
+    faors = (FAOR(root,preamble,config,run) for root,preamble,config,run in faors)
     faors = list(filter(lambda faor: faor.preamble is not None, faors))
 
     # only keep faors for selected aorids

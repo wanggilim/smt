@@ -10,7 +10,7 @@ from collections import deque
 import tempfile
 from astropy.utils.data import download_file, clear_download_cache, is_url_in_cache
 from astropy.config import set_temp_cache,get_cache_dir
-from astropy.table import Table
+from astropy.table import Table,Column
 import datetime
 import time
 import uuid
@@ -19,9 +19,8 @@ from peewee import SqliteDatabase
 from . import DBmodels
 from pandas import DataFrame
 from astropy.utils.console import ProgressBar
-
+from . import MIS as dcsMIS
 '''
-import MIS
 import OBS
 import AOR
 import POS
@@ -405,8 +404,11 @@ class DCS(object):
         """Get AOR row.
         If aorID is a planID (e.g. 07_0225) or ObsBlk (e.g. OB_07_0225_04),
         all aorIDs in that obs plan will be returned."""
-        if isinstance(search,str):
+        '''
+        if isinstance(search,str) or len(search) == 1:
             # single aor/plan/obsblk
+            if isinstance(search,(Table,Column,list,tuple)):
+                search = str(search[0])
             if self.refresh_cache:
                 # bypass DB
                 return self._getObsPlan(search,*args,**kwargs)
@@ -426,50 +428,40 @@ class DCS(object):
                 cfiles = [self._getObsPlan(search,raw=True) for s in search]
                 aors = self._query_AOR_table(search,*args,**kwargs)
         return aors
-
-    def _getAORs_by_planID(self, planID, as_json=False):
-        """Get AOR rows in planID"""
-        if self.refresh_cache:
-            # bypass DB
-            return self._getObsPlan(planID,as_json=as_json)
+        '''
+        return self._get(search, 'AOR', *args, **kwargs)
         
-        aors = self._query_AOR_table(planID=planID)
-        if not aors:
-            return self._getObsPlan(planID,as_json=as_json)
-
-        if as_json:
-            return json.dumps(aors)
-        return aors
-
-    
-    def _getAORs_by_ObsBlk(self, ObsBlk, as_json=False):
-        """Get AOR rows in ObsBlk"""
-        planID = _ObsBlk_to_planID(ObsBlk)
         
-        if self.refresh_cache:
-            # bypass DB
-            return self._getObsPlan(planID,ObsBlk=ObsBlk,as_json=as_json)
+    def getFAORs(self, search, *args, **kwargs):
+        if kwargs.get('match'):
+            # return faors in format to match aorids in dossier
+            key_map = {'NODDWELL':'Nod','REPEATS':'Repeat','AORID':'aorID',
+                       'DITHER':'Dithers','DITHSCALE':'Scale','FILENAME':'FAORfile',
+                       'INTTIME':'IntTime','FDUR':'FDUR','DURPERREW':'TREW','TLOS':'TLOS'}
+            faors = self._get(search, 'FAOR', *args, **kwargs)
+            faors = [{newk:f[k] for k,newk in key_map.items()} for f in faors]
+            faors = {f['aorID']:f for f in faors}
+            return faors
+        else:
+            return self._get(search, 'FAOR', *args, **kwargs)
 
-        aors = self._query_AOR_table(ObsBlk=ObsBlk)
-        if not aors:
-            return self._getObsPlan(planID,ObsBlk=ObsBlk,as_json=as_json)
-
-        if as_json:
-            return json.dumps(aors)
-        return aors
 
     def _get(self, search, clsname, *args, **kwargs):
         """Unified interface to DB and DCS fallback"""
         DB_funcs  = {'AOR':self._query_AOR_table,
-                     'POS':self._query_POS_table}
+                     'POS':self._query_POS_table,
+                     'FAOR':self._query_FAOR_table}
         DCS_funcs = {'AOR':self._getObsPlan,
-                     'POS':self._getPOS}
+                     'POS':self._getPOS,
+                     'FAOR':lambda x: None}
 
         getDB = DB_funcs[clsname]
         getDCS = DCS_funcs[clsname]
 
-        if isinstance(search,str):
+        if isinstance(search,str) or len(search) == 1:
             # single aor/plan/obsblk
+            if isinstance(search,(Table,Column,list,tuple,set)):
+                search = str(search[0])
             if self.refresh_cache:
                 # bypass DB
                 return getDCS(search,*args,**kwargs)
@@ -579,8 +571,13 @@ class DCS(object):
         return self._get(search, 'POS', *args, **kwargs)
         
 
-    def getFlightPlan(self, flightid, ObsBlk=None,
+    def getFlightPlan(self, flightid, ObsBlk=None, utctab=False,
                       as_table=False, as_pandas=False, as_json=False, local=None):
+        if utctab:
+            # must get .mis file
+            return self._getFlightPlan(flightid,ObsBlk=ObsBlk,local=local,utctab=utctab,
+                                       as_table=as_table,as_pandas=as_pandas, as_json=as_json)
+        
         if self.refresh_cache:
             # bypass DB
             return self._getFlightPlan(flightid,ObsBlk=ObsBlk,local=local,
@@ -601,26 +598,13 @@ class DCS(object):
             return MIS.as_json(legs)
         return legs
 
-    def getFlightPlan_by_name(self, name, ObsBlk=None, as_json=False):
-        if self.refresh_cache:
-            # bypass DB
-            return self._getFlightPlan(flightid,ObsBlk=ObsBlk,as_json=as_json)
-
-        legs = DCS._query_MIS_table(flightid, ObsBlk=ObsBlk)
-        if not legs:
-            self._getFlightPlan(flightid,ObsBlk=ObsBlk,as_json=as_json)
-
-        if as_json:
-            return MIS.as_json(legs)
-        else:
-            return legs
-
-    def getFlightSeries(self, series, get_ids=False, as_json=True):
+    def getFlightSeries(self, series, get_ids=False, as_json=True, local=None):
         flightids = self._getFlightIDs_in_Series(series)
         if get_ids:
             return flightids
 
-        return self.getFlightPlan(flightids, as_json=as_json)
+        mis = [self.getFlightPlan(flightid, as_json=as_json, local=local) for flightid in flightds]
+        return mis
 
     
     def _query_AOR_table(self, search, *args, **kwargs):
@@ -639,7 +623,14 @@ class DCS(object):
                                       (AOR.ObsBlk.in_(search))).order_by(AOR.ObsBlk,AOR.order,AOR.aorID)
 
         return self._proc_res(aors,AOR, *args, **kwargs)
-        
+
+
+    def _query_FAOR_table(self, search, *args, **kwargs):
+        if isinstance(search,str):
+            search = [search]
+
+        faors = FAOR.select().where(FAOR.AORID.in_(search))
+        return self._proc_res(faors,FAOR, *args, **kwargs)
 
     def _query_AOR_table_old(self,aorID=None,planID=None,ObsBlk=None,pos=False,guide=False):
         """Perform DB lookup on AOR table"""
@@ -893,6 +884,7 @@ class DCS(object):
                        rel='flightPlan/downloadFlightPlanFile.jsp',
                        form='DIRECT',
                        local=None,
+                       utctab=False,
                        raw=False,
                        ObsBlk=None,
                        as_table=False,
@@ -901,13 +893,24 @@ class DCS(object):
                        insert=True):
         '''Download mis file'''
         if local:
+            # BROKEN---STILL REQUIRES .MIS FILES
             try:
                 cfile = list(Path(local).glob('%s*.mis'%flightid))[0]
             except IndexError:
                 cfile = Path(local)
+            if raw:
+                return local
+            if utctab:
+                _,tab = dcsMIS.get_legs(cfile)
+            else:
+                tab = Table.read(cfile,format='mis-tab')
+            return tab
 
         else:
-            query = (self.dcsurl/rel).with_query({'fpid':flightid,'fileType':'misxml'})
+            if utctab:
+                query = (self.dcsurl/rel).with_query({'fpid':flightid,'fileType':'mis'})               
+            else:
+                query = (self.dcsurl/rel).with_query({'fpid':flightid,'fileType':'misxml'})
             cfile = self._queryDCS(query, form)
         
         with open(cfile,'r') as f:
@@ -920,6 +923,10 @@ class DCS(object):
                 with set_temp_cache(self.cachedir):
                     clear_download_cache(streamfile)
                 return None
+
+        if utctab:
+            _,tab = dcsMIS.get_legs(cfile)
+            return tab
 
         miscfg = self.mcfg['MIS']
         rows = MIS.to_rows(cfile, miscfg)

@@ -141,6 +141,7 @@ def generate_dossier(flightid, odir,
                      template='template.tex',
                      local=None,
                      config=None,
+                     mconfig=None,
                      alias=None,
                      guide=False,
                      faor=False,
@@ -184,7 +185,7 @@ def generate_dossier(flightid, odir,
 
     if not dcs:
         # initialize DCS link
-        dcs = DCS.DCS(refresh_cache=refresh_cache)
+        dcs = DCS.DCS(refresh_cache=refresh_cache,modelcfg=mconfig)
 
     if 'ALT' in flightid:
         name = '_'.join(flightid.split('_')[-2:])
@@ -278,6 +279,7 @@ def generate_dossier(flightid, odir,
     TEX.write_tex_dossier(tables, name, title, output,
                           template=template,
                           config=config,
+                          mconfig=mconfig,
                           refresh_cache=refresh_cache,
                           guide=guide,
                           faor=faor,
@@ -387,7 +389,7 @@ def main():
     
     elif len(split) == 2:
         # series, get flightids from dcs
-        flightids = dcs.getFlightSeries(args.flightid, local=args.local)
+        flightids = dcs.getFlightSeries(args.flightid, get_ids=True, local=args.local)
         names = [f.split('_') for f in flightids]
         names = ['_'.join(name[-2:]) if 'ALT' in name else name[-1] for name in names]
         series = args.flightid
@@ -432,6 +434,7 @@ def main():
                                   template=args.template,
                                   local=args.local,
                                   config=args.cfg,
+                                  mconfig=args.mcfg,
                                   alias=args.alias,
                                   faor=args.faor,
                                   guide=args.guide,

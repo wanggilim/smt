@@ -34,7 +34,6 @@ def _as_pandas(rows):
 def _as_table(rows):
     if isinstance(rows,dict):
         columns = rows.keys()
-        print(columns)
     else:
         columns = rows[0].keys()
     return Table(data=rows,names=columns)
@@ -259,10 +258,11 @@ def MIS_to_rows(filename, miscfg):
 
     return list(rows)
 
-def FAOR_to_rows(filename, faorcfg):
+def FAOR_to_rows(filename, faorcfg,faor=None):
     """Converts FAOR file to rows for DB ingestion"""
-    faor = dcsFAOR.read(filename)
-
+    if faor is None:
+        faor = dcsFAOR.read(filename)
+        
     # Get meta data
     meta = {key:faor.preamble[key] for key in json.loads(faorcfg['meta_keys'])}
     meta['FILENAME'] = str(Path(filename).resolve())
@@ -279,6 +279,14 @@ def FAOR_to_rows(filename, faorcfg):
 
     # Get run data from each run block
     run = map(lambda r: {k:r.get(k,None) for k in json.loads(faorcfg['run_keys'])}, faor.run)
+
+    config = list(config)
+
+    comments = faor.get_comments_as_dicts()
+
+    # get dithscale and comment data
+    for fc,c,m in zip(faor.config,config,comments):
+        c.update(m)
 
     # combine all xml data into row
     row_func = partial(combine_FAOR_data,meta=meta)

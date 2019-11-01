@@ -386,6 +386,7 @@ def main():
     register_models(dcs)
 
     dcs._force_db_sync()
+    exit()
     
     #rows = POS.to_rows('test/07_0225.pos',mcfg['POS'])
     #print('Digest POS')
