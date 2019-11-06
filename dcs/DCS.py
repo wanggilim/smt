@@ -128,6 +128,7 @@ class DCS(object):
         if not urlmap.exists():
             return False
 
+        print('Resyncing local DB with cache @ %s'%urlmap)
         with set_temp_cache(self.cachedir):
             with open(urlmap,'r') as f:
                 for line in ProgressBar(f.readlines()):
@@ -144,14 +145,17 @@ class DCS(object):
                         rows = AOR.to_rows(cfile, self.mcfg['AOR'])
                         if rows:
                             AOR.replace_rows(self.db, rows)
+                        grows = GUIDE.to_rows(cfile, self.mcfg['GUIDE'])
+                        if grows:
+                            GUIDE.replace_rows(self.db, grows)
                     elif 'pos_' in streamfile:
                         cfile = download_file(streamfile,show_progress=False,cache=True)
                         rows = POS.to_rows(cfile, self.mcfg['POS'])
                         if rows:
                             POS.replace_rows(self.db, rows)
-                        rows = GUIDE.to_rows(cfile, self.mcfg['GUIDE'])
-                        if rows:
-                            GUIDE.replace_rows(self.db, rows)
+                        #rows = GUIDE.to_rows(cfile, self.mcfg['GUIDE'])
+                        #if rows:
+                        #    GUIDE.replace_rows(self.db, rows)
                     else:
                         continue
                     
@@ -490,12 +494,15 @@ class DCS(object):
         if kwargs.get('sql'):
             return res
 
-        #sql = str(res)
+        sql = str(res)
         
         rows = list(res.dicts())
         rows = rows if rows else None
         if rows is None:
             return None
+
+        for row in rows:
+            row['sql'] = sql
 
         if kwargs.get('raw'):
             fnames = {row['FILENAME'] for row in rows}
@@ -612,18 +619,31 @@ class DCS(object):
     def _query_AOR_table(self, search, *args, **kwargs):
         if isinstance(search,str):
             search = [search]
-            
+
+        '''
         # query multiple, and allow for planIDs, ObsBlks
         if kwargs.get('pos'):
             # BROKEN!!!
             aors = AOR.select(AOR,POS.POSName).join(POS).where((AOR.aorID.in_(search))  |
                                                                (AOR.planID.in_(search)) |
                                                                (AOR.ObsBlk.in_(search))).order_by(AOR.ObsBlk,AOR.order,AOR.aorID)
+        elif kwargs.get('guide'):
+            print('sup')
+            print(search)
+            aors = AOR.select().where((AOR.aorID.in_(search))  |
+                                      (AOR.planID.in_(search)) |
+                                      (AOR.ObsBlk.in_(search))).order_by(AOR.ObsBlk,AOR.order,AOR.aorID)
+            aors = list(aors)
+            print(list(aors[0].guide.execute()))
+            exit()
         else:
             aors = AOR.select().where((AOR.aorID.in_(search))  |
                                       (AOR.planID.in_(search)) |
                                       (AOR.ObsBlk.in_(search))).order_by(AOR.ObsBlk,AOR.order,AOR.aorID)
-
+        '''
+        aors = AOR.select().where((AOR.aorID.in_(search))  |
+                                  (AOR.planID.in_(search)) |
+                                  (AOR.ObsBlk.in_(search))).order_by(AOR.ObsBlk,AOR.order,AOR.aorID)
         return self._proc_res(aors,AOR, *args, **kwargs)
 
 
@@ -835,9 +855,15 @@ class DCS(object):
         cfile = self._queryDCS(query,form)
 
         aorcfg = self.mcfg['AOR']
+        guidecfg = self.mcfg['GUIDE']
+        
         rows = AOR.to_rows(cfile, aorcfg)
         if rows and insert:
             AOR.replace_rows(self.db, rows)
+
+        grows = GUIDE.to_rows(cfile, guidecfg)
+        if grows and insert:
+            GUIDE.replace_rows(self.db, grows)
             
         if raw:
             return cfile
@@ -987,9 +1013,9 @@ class DCS(object):
         if prows and insert:
             POS.replace_rows(self.db, prows)
 
-        grows = GUIDE.to_rows(cfile, guidecfg)
-        if grows and insert:
-            GUIDE.replace_rows(self.db, grows)
+        #grows = GUIDE.to_rows(cfile, guidecfg)
+        #if grows and insert:
+        #    GUIDE.replace_rows(self.db, grows)
 
         if not prows:
             return None

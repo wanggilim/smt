@@ -106,6 +106,17 @@ def combine_AOR_data(name,position,rkeys,dkeys,blkdict,meta):
     row['ObsBlk'] = blkdict.get(row['aorID'],None)
     return row
 
+def combine_GUIDE_data(target,aorid,dkeys,akeys,mkeys,meta):
+    row = dkeys
+    row.update(akeys)
+    row.update(mkeys)
+    row.update(meta)
+    row['aorID'] = aorid
+    row['target'] = target
+    row['planID'] = '_'.join(aorid.split('_')[0:-1])
+    row['pkey'] = ': '.join((aorid,row['Name']))
+    return row
+
 def combine_MIS_data(legnum,dkeys,attrs,meta):
     row = meta.copy()
     row['Leg'] = legnum
@@ -371,37 +382,59 @@ def POS_to_rows(filename, poscfg):
     return list(rows)
 
 def GUIDE_to_rows(filename, guidecfg):
-    data_keys = json.loads(guidecfg['data_keys'])
-    pos_keys = json.loads(guidecfg['pos_keys'])
-    keys = data_keys + pos_keys
-    
+    """Converts AOR xml files to rows for DB ingestion"""
     with open(filename,'r') as f:
-        text = f.read()
+        try:
+            aor = BeautifulSoup(f,HTMLPARSER).body.aors.list
+        except AttributeError:
+            return None
 
-    rows = deque()
-    target_blocks = POS_SPLIT_RE.split(text)
-    for target_block in target_blocks[1:]:
-        # get config block
-        config = POS_CONFIG_RE.search(target_block).group()
-        config = config[1:].strip().split('|')[:-1]
-        aorid,target = config[0],config[1]
+    # save filename
+    meta = {'FILENAME':str(Path(filename).resolve())}
+    # save timestamp
+    stats = Path(filename).stat()
+    ts = stats.st_mtime if stats.st_mtime > stats.st_ctime else stats.st_ctime
+    meta['TIMESTAMP'] = ts
 
-        # now get guide stars
-        guides = GUIDE_RE.findall(target_block)
-        for idx,guide in enumerate(guides):
-            guide = list(guide)
-            data = guide.pop(-1)
-            guide.extend(data.split())
-            guide = {k:v for k,v in zip(keys,guide)}
-            guide['FILENAME'] = filename
-            guide['AORID'] = aorid
-            guide['Target'] = target
-            guide['pkey'] = '%s: %s' % (aorid,guide['GuidePOSName'])
-            guide['planID'] = '_'.join(aorid.split('_')[:-1])
-            guide['isGuide'] = True
-            guides[idx] = guide
+    requests = aor.vector.find_all('request')
+    gstars = [star for r in requests for star in r.find_all('guidestar')]
+    if not gstars:
+        return None
+    data_keys = json.loads(guidecfg['data_keys'])
+    gdata_keys = ['GuideStar%s'%key for key in data_keys]
+    
+    data_func = partial(get_keydict,keys=gdata_keys)
+    dkeys = map(data_func,gstars)
+    dkeys = (dict(zip(data_keys,d.values())) for d in dkeys)
 
-        rows.extend(guides)
+    # Get guidestar attributes
+    data_attr = json.loads(guidecfg['attr_keys'])
+    akeys = map(lambda tag:{a:tag[a.lower()] if tag and a.lower() in tag.attrs else None for a in data_attr},gstars)
+
+    # Get target name from request
+    targets = (g.parent.parent.find('name').text for g in gstars)
+    aorids = (g.parent.parent.parent.instrument.data.aorid.text for g in gstars)
+
+    # get mags
+    mks = json.loads(guidecfg['mag_keys'])
+    mtags = [{m:g.find('guidestar%s'%m.lower()) for m in mks} for g in gstars]
+    mkeys = ({k:'%s_%s'%(v['type'],v.text) if ((v and ('type' in v.attrs)) and (np.float(v.text) < 900)) else None for k,v in m.items()} \
+             for m in mtags)
+    '''
+    mkeys = deque()
+    for m in mtags:
+        try:
+            mk = {k:'%s_%s'%(v['type'],v.text) if (v and ('type' in v.attrs)) and (np.float(v.text) > 900) else None for k,v in m.items()}
+        except (KeyError,AttributeError):
+            print(m)
+            mk = {k:None for k in m.keys()}
+        mkeys.append(mk)
+    #mkeys = ({k:'%s_%s'%(v['type'],v.text) if np.float(v.text) != 999 else None for k,v in m.items()} for m in mtags)
+    '''
+
+    row_func = partial(combine_GUIDE_data,meta=meta)
+    rows = map(row_func,targets,aorids,dkeys,akeys,mkeys)
+
     return list(rows)
     
 
@@ -473,6 +506,13 @@ if __name__ == '__main__':
     c = ConfigParser()
     c.read('DBmodels.cfg')
 
+    aorfile = '/home/msgordo1/.astropy/cache/DCS/astropy/download/py3/e4289dd22b7aee455660b29a4b5e431e'
+    #'../test/07_0130.aor'
+    guide = GUIDE_to_rows(aorfile,c['GUIDE'])
+    print(guide)
+    
+    exit()
+    
     #posfile = '../test/201910_FO_GIMLI/201910_FO_GIMLI_V838_Mon.pos'
     posfile = '../test/07_0225.pos'
     #pos = dcsPOS.read_POS_file('../test/201910_FO_GIMLI/201910_FO_GIMLI_V838_Mon.pos',guide=True)

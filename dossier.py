@@ -97,7 +97,7 @@ def get_raw_AORs(flightid, odir,
     return mis
 
 
-def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID', guide=False):
+def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID'):
     """Get AOR for input leg
 
     Download AOR for flight leg.
@@ -143,7 +143,6 @@ def generate_dossier(flightid, odir,
                      config=None,
                      mconfig=None,
                      alias=None,
-                     guide=False,
                      faor=False,
                      posfiles=False,
                      reg=False,
@@ -166,7 +165,6 @@ def generate_dossier(flightid, odir,
         local (str): Specify local directory with .mis files rather than pull them from DCS.
         config (str): Config file with options for ObsBlks/Legs in dossier.
         alias (dict): Dictionary of ObsBlks to replace or alias (e.g. for dummy FORCAST cal files).
-        guide (bool): If True, add guide stars to overlays.
         faor (bool): If True, process FORCAST configurations from .faor files.  These files must have been generated from companion 'planner.py' script and must exist in an 'faors/' folder within the output directory structure.
         posfiles (bool): If True, pull down .pos files from DCS.
         reg (bool): If True, generate DS9 region files of overlays.
@@ -281,7 +279,6 @@ def generate_dossier(flightid, odir,
                           config=config,
                           mconfig=mconfig,
                           refresh_cache=refresh_cache,
-                          guide=guide,
                           faor=faor,
                           posfiles=posfiles,
                           dcs=dcs,
@@ -326,7 +323,7 @@ def main():
                         help='Compile tex to pdf')
     parser.add_argument('--faor',action='store_true',help='Populate values from FAORs')
     parser.add_argument('--pos',dest='posfiles',action='store_true',help='Download .pos files')
-    parser.add_argument('--guide',action='store_true',help='Highlight guide stars in images.')
+    #parser.add_argument('--guide',action='store_true',help='Highlight guide stars in images.')
     parser.add_argument('-sio','--ioinstructions',
                         dest='sio',action='store_true',
                         help='Override ObsBlk comments with instrument operator instructions (for HAWC+ only)')
@@ -437,7 +434,6 @@ def main():
                                   mconfig=args.mcfg,
                                   alias=args.alias,
                                   faor=args.faor,
-                                  guide=args.guide,
                                   posfiles=args.posfiles,
                                   reg=args.reg,
                                   sio=args.sio,
@@ -462,5 +458,8 @@ if __name__ == '__main__':
     main()
 
     #dcs = DCS.DCS()
+    
+
     #register_models(dcs)
+    #dcs._force_db_sync()
     #generate_dossier('201909_HA_FEMKE',odir='test2',dcs=dcs,guide=True)

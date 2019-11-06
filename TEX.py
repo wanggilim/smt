@@ -102,7 +102,9 @@ latex_jinja_env = Environment(
 IMGOPTIONS = {'width':0.3, 'height':0.3,
               'survey':'DSS2 Red',
               'vmin':None, 'vmax':None,
-              'recenter':None,'roll':True}
+              'recenter':None,'roll':True,
+              'invert':True,'irsurvey':None,
+              'compass':True,'nofigure':False}
 
 TARFOFFSET = {'HAWC_PLUS':40.6*u.deg,
               'FORCAST':3*u.deg}
@@ -283,8 +285,7 @@ def get_img_options(cmap):
 def get_image(overlays,survey='DSS2 Red',width=0.2*u.deg,height=0.2*u.deg,
               reticle=False,reticle_style_kwargs=None,compass=True,
               vmin=None,vmax=None,recenter=None,invert=True,fpi=False,
-              irsurvey=None,
-              **kwargs):
+              irsurvey=None,**kwargs):
     '''Get image from skyview'''
     
     if overlays is None or not overlays:
@@ -901,8 +902,10 @@ def get_pos_bundle(tab, d, odir):
     return postarfile
 
 def generate_overlays(table):
-    return list(map(generate_overlay,table))
-
+    overlays = list(map(generate_overlay,table))
+    for overlay,row in zip(overlays,table):
+        row['overlay'] = overlay
+    return table
 
 def generate_overlay(row,nod=True,dithers=True):
     #tab = unique(tab,keys=['RA_aor','DEC_aor'])
@@ -913,7 +916,7 @@ def generate_overlay(row,nod=True,dithers=True):
         return None
     
     # get roll angle
-    rolls = (row['ROFRT_start'],row['ROFRT_end'])
+    rolls = (row['ROF_start'],row['ROF_end'])
 
     # override displayed roll if specified in config
     roll = row['roll']
@@ -979,13 +982,13 @@ def generate_overlay(row,nod=True,dithers=True):
         
             overlay['dithers'] = [make_box(dith, width, height, angle=roll, TARFoffset=TARFoffset, label=label, split=split, color=overlay['color']) for dith in diths]
 
-        if nod and row['ObsPlanMode'] == 'C2NC2'):
+        if nod and row['ObsPlanMode'] == 'C2NC2':
             chopthrow = row['ChopThrow']*u.arcsec
             chopangle = row['ChopAngle']*u.deg
             nodthrow = row['NodThrow']*u.arcsec
             nodangle = row['NodAngle']*u.deg
 
-            if row['ChopAngleCoordinate'] == 'Sky':
+            if row['ChopAngleCoordinate'] == 'Array':
                 chopangle += roll
 
             nodAchopB,nodBchopA,nodBchopB = make_C2NC2(overlay['center'],
@@ -996,37 +999,35 @@ def generate_overlay(row,nod=True,dithers=True):
             nodBchopBdict = row.copy()
 
             for ntab,n in zip((nodAchopBdict,nodBchopAdict,nodBchopBdict),(nodAchopB,nodBchopA,nodBchopB)):
-                print('OMG RIGHT HERE')
-                exit()
-                ntab.replace_column('RA_aor',[n.to_string('hmsdms').split()[0]])
-                ntab.replace_column('DEC_aor',[n.to_string('hmsdms').split()[1]])
+                ra,dec = n.to_string('hmsdms').split()
+                ntab['RA'] = ra
+                ntab['DEC'] = dec
 
-            overlay['nods'] = [generate_overlay(n, nod=False,roll=roll,dithers=False) \
-                               for n in (nodAchopBtab,nodBchopAtab,nodBchopBtab)]
+            overlay['nods'] = [generate_overlay(n, nod=False,dithers=False) \
+                               for n in (nodAchopBdict,nodBchopAdict,nodBchopBdict)]
 
         elif nod:
-            chopthrow = row['Chop Throw']*u.arcsec
-            chopangle = row['Chop Angle']*u.deg
+            chopthrow = row['ChopThrow']*u.arcsec
+            chopangle = row['ChopAngle']*u.deg
 
-            if row['Sys'] == 'SIRF':
+            if row['ChopAngleCoordinate'] == 'Array':
                 chopangle += roll
                 
             nodA,nodB = make_NMC(overlay['center'],
                                  chopthrow=chopthrow,
-                                 #chopangle=roll+chopangle)
                                  chopangle=chopangle)
 
-            nodtabA = Table(rows=[tab[idx]],names=tab.colnames,meta=tab.meta)
-            nodtabB = Table(rows=[tab[idx]],names=tab.colnames,meta=tab.meta)
-
-            nodtabA.replace_column('RA_aor',[nodA.to_string('hmsdms').split()[0]])
-            nodtabA.replace_column('DEC_aor',[nodA.to_string('hmsdms').split()[1]])
-            nodtabB.replace_column('RA_aor',[nodB.to_string('hmsdms').split()[0]])
-            nodtabB.replace_column('DEC_aor',[[nodB.to_string('hmsdms').split()[1]]])
+            nodAdict = row.copy()
+            nodBdict = row.copy()
+            ra,dec = nodA.to_string('hmsdms').split()
+            nodAdict['RA'] = ra
+            nodAdict['DEC'] = dec
+            ra,dec = nodB.to_string('hmsdms').split()
+            nodBdict['RA'] = ra
+            nodBdict['DEC'] = dec
             
-            overlay['nods'] = [generate_overlay(nod,TARFoffset=TARFoffset,
-                                                idx=0,nod=False,roll=roll,dithers=False) \
-                               for nod in (nodtabA,nodtabB)]
+            overlay['nods'] = [generate_overlay(n, nod=False,dithers=False) \
+                               for n in (nodAdict,nodBdict)]
 
 
     else:
@@ -1050,7 +1051,7 @@ def generate_overlay(row,nod=True,dithers=True):
             ## THIS IS STILL BROKEN
             overlay['dithers'] = make_box(overlay['center'],width=ampx,height=ampy,angle=roll,TARFoffset=TARFoffset,label=label,color=overlay['color'])
         '''
-                        
+
     return overlay
 
 def get_overlay_params(tab):
@@ -1086,38 +1087,20 @@ def get_recenter_image(overlaylist):
 
     return recenter
 
-def make_figures(tup,cfg,guidestars,fdir,reg=False,irsurvey=None,savefits=False,**kwargs):
+def make_figures(table,fdir,reg=False,irsurvey=None,savefits=False,**kwargs):
     '''Generate figure from each overlay'''
-    overlay,tab = tup
-    if overlay is None or not overlay:
-        return None
-        
-    if isinstance(overlay,dict):
-        options = overlay.copy()
-        blk = overlay['obsblk']
-    else:
-        options = overlay[-1].copy()
-        blk = overlay[-1]['obsblk']
-        options['recenter'] = get_recenter_image(overlay)
 
-    if cfg is not None and cfg.has_section(blk):
-        # override options with cfg
-        cfgoptions = get_cfgoptions(cfg,blk)
-        options.update(**cfgoptions)
-
-    # override options with tab metadata
-    if 'IMGOVERRIDES' in tab.meta:
-        options.update(**tab.meta['IMGOVERRIDES'])
-
-    if 'nofigure' in options and options['nofigure']:
+    overlays = [row['overlay'] for row in table if row.get('overlay')]
+    # remove any with 'nofigure' flag
+    overlays = list(filter(lambda o:not o.get('nofigure',False),overlays))
+    if not overlays:
         return None
 
-    # add irsurvey
-    if irsurvey is not None:
-        options['irsurvey'] = irsurvey
+    # image options are grabbed from first row in blk
+    options = overlays[0].copy()
 
     try:
-        fig,regs,hdu = get_image(overlay,**options)
+        fig,regs,hdu = get_image(overlays,**options)
     except TypeError:
         warnings.warn('Issue querying SkyView. Skipping figure.',RuntimeWarning)
         return None
@@ -1126,16 +1109,18 @@ def make_figures(tup,cfg,guidestars,fdir,reg=False,irsurvey=None,savefits=False,
         return None
 
 
+    '''
     if guidestars is not None:
         # show ALL guide stars from POS
         # TODO: filter out guide stars if not within footprint
         fig.show_markers(guidestars.ra,guidestars.dec,
                          marker='o',s=80,
                          linewidths=2)#edgecolor='#FFD700')
+    '''
 
 
     # show chop/nod/dithers
-    for o in overlay:
+    for o in overlays:
         if 'dithers' in o:
             for dith in o['dithers']:
                 fig.show_polygons(dith['box'],edgecolor=dith['color'],lw=1,
@@ -1147,7 +1132,7 @@ def make_figures(tup,cfg,guidestars,fdir,reg=False,irsurvey=None,savefits=False,
 
 
     #outfile = fdir/('Leg%02d.png'%tab['Leg'][0])
-    outfile = fdir/('Leg%02d.pdf'%tab['Leg'][0])
+    outfile = fdir/('Leg%02d.pdf'%table[0]['Leg'])
     
     fig.savefig(outfile,dpi=300)
     fig.close()
@@ -1155,7 +1140,7 @@ def make_figures(tup,cfg,guidestars,fdir,reg=False,irsurvey=None,savefits=False,
     if savefits:
         fitsdir = fdir/'images'
         fitsdir.mkdir(exist_ok=True)
-        aorid = tab['AOR'][0]
+        aorid = table[0]['planID']
         if not isinstance(hdu,fits.HDUList):
             hdu = [hdu]
         for h in hdu:
@@ -1271,7 +1256,6 @@ def write_tex_dossier(tables, name,title,filename,
                       config=None,
                       mconfig=None,
                       refresh_cache=False,
-                      guide=None,
                       faor=False,
                       posfiles=False,
                       reg=False,
@@ -1328,6 +1312,9 @@ def write_tex_dossier(tables, name,title,filename,
     print('Generating overview...')
     over_func = partial(make_overview,tex=tex)
     overviews = ProgressBar.map(over_func,tables,multiprocess=True)
+
+    print(overviews)
+    exit()
     #legnames = [o.meta['legName'].replace('_','\_') for o in overviews]
     #overviews = ProgressBar.map(generate_overview_tex, overviews, multiprocess=True)
 
@@ -1357,22 +1344,7 @@ def write_tex_dossier(tables, name,title,filename,
     # get im
     #overlays = [get_overlay_params(tab) for tab in tables]
     print('Generating overlays...')
-    overlays = ProgressBar.map(generate_overlays,tables,multiprocess=False)
-
-    
-    
-    exit()
-    overlays = ProgressBar.map(get_overlay_params,tables,multiprocess=False)
-    #overlays = [pickle.loads(overlay) for overlay in overlays]
-
-    #print(overlays)
-    #print(overlays[0]['reg'])
-    #exit()
-
-    #images = [get_image(overlay) for overlay in overlays]
-
-    exit()
-
+    tables = ProgressBar.map(generate_overlays,tables,multiprocess=True)
     '''
     if guide is not None:
         guidestars = SkyCoord(ra=guide['RA'],dec=guide['DEC'],unit=(u.hourangle,u.deg))
@@ -1383,12 +1355,11 @@ def write_tex_dossier(tables, name,title,filename,
     fdir = Path(filename).parent
 
     # define partial function for multiprocessing
-    figfunc = partial(make_figures,cfg=cfg,guidestars=guidestars,fdir=fdir,reg=reg,
+    figfunc = partial(make_figures,fdir=fdir,reg=reg,
                       irsurvey=irsurvey,savefits=savefits)
 
     print('Generating figures...')
-    imagefiles = ProgressBar.map(figfunc, list(zip(overlays,tables)),
-                                 multiprocess=True)
+    imagefiles = ProgressBar.map(figfunc,tables,multiprocess=True)
 
     if sio:
         print('Generating comments...')
@@ -1398,7 +1369,8 @@ def write_tex_dossier(tables, name,title,filename,
         #comments = ['%s\n\n%s'%(c0,c1) for c0,c1 in zip(comments0,comments)]
     else:
         print('Gathering comments...')
-        comments = ProgressBar.map(make_comments,tables,multiprocess=True)
+        print('STILL NEED TO DO THIS')
+        #comments = ProgressBar.map(make_comments,tables,multiprocess=True)
 
     '''
     imagefiles = deque()
