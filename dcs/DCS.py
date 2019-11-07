@@ -434,6 +434,11 @@ class DCS(object):
         return aors
         '''
         return self._get(search, 'AOR', *args, **kwargs)
+
+    def getGuideStars(self, search, *args, **kwargs):
+        """Get GuideStars for aorID"""
+        # search MUST be an aorID, planID, or ObsBlkID
+        return self._get(search, 'GUIDE', *args, **kwargs)
         
         
     def getFAORs(self, search, *args, **kwargs):
@@ -455,9 +460,13 @@ class DCS(object):
     def _get(self, search, clsname, *args, **kwargs):
         """Unified interface to DB and DCS fallback"""
         DB_funcs  = {'AOR':self._query_AOR_table,
+                     'MIS':self._query_MIS_table,
+                     'GUIDE':self._query_GUIDE_table,
                      'POS':self._query_POS_table,
                      'FAOR':self._query_FAOR_table}
         DCS_funcs = {'AOR':self._getObsPlan,
+                     'MIS':self._getFlightPlan,
+                     'GUIDE':self._getObsPlan,
                      'POS':self._getPOS,
                      'FAOR':lambda x: None}
 
@@ -471,7 +480,6 @@ class DCS(object):
             if self.refresh_cache:
                 # bypass DB
                 return getDCS(search,*args,**kwargs)
-            
             res = getDB(search, *args, **kwargs)
             if not res:
                 # search not found in DB
@@ -510,9 +518,6 @@ class DCS(object):
                 return fnames.pop()
             else:
                 return fnames
-
-        #for row in rows:
-        #    row['sql'] = sql
 
         if kwargs.get('as_table'):
             return cls.as_table(rows)
@@ -580,13 +585,11 @@ class DCS(object):
         return self._get(search, 'POS', *args, **kwargs)
         
 
-    def getFlightPlan(self, flightid, ObsBlk=None, utctab=False,
-                      as_table=False, as_pandas=False, as_json=False, local=None):
-        if utctab:
+    def getFlightPlan(self, search, *args, **kwargs):
+        if kwargs.get('utctab'):
             # must get .mis file
-            return self._getFlightPlan(flightid,ObsBlk=ObsBlk,local=local,utctab=utctab,
-                                       as_table=as_table,as_pandas=as_pandas, as_json=as_json)
-        
+            return self._getFlightPlan(search,*args,**kwargs)
+        '''
         if self.refresh_cache:
             # bypass DB
             return self._getFlightPlan(flightid,ObsBlk=ObsBlk,local=local,
@@ -606,6 +609,8 @@ class DCS(object):
         if as_json:
             return MIS.as_json(legs)
         return legs
+        '''
+        return self._get(search, 'MIS', *args, **kwargs)
 
     def getFlightSeries(self, series, get_ids=False, as_json=True, local=None):
         flightids = self._getFlightIDs_in_Series(series)
@@ -644,7 +649,15 @@ class DCS(object):
         aors = AOR.select().where((AOR.aorID.in_(search))  |
                                   (AOR.planID.in_(search)) |
                                   (AOR.ObsBlk.in_(search))).order_by(AOR.ObsBlk,AOR.order,AOR.aorID)
-        return self._proc_res(aors,AOR, *args, **kwargs)
+        return self._proc_res(aors, AOR, *args, **kwargs)
+
+    def _query_GUIDE_table(self, search, *args, **kwargs):
+        if isinstance(search,str):
+            search = [search]
+        guides = GUIDE.select().where((GUIDE.aorID.in_(search)) |
+                                      (GUIDE.planID.in_(search)) |
+                                      (GUIDE.ObsBlk.in_(search))).order_by(GUIDE.Radius)
+        return self._proc_res(guides, GUIDE, *args, **kwargs)
 
 
     def _query_FAOR_table(self, search, *args, **kwargs):
@@ -795,8 +808,10 @@ class DCS(object):
             aors = None
         return aors
 
-    @staticmethod
-    def _query_MIS_table(flightid=None,ObsBlk=None,flightname=None):
+    def _query_MIS_table(self, search, *args, **kwargs):
+        if isinstance(search,str):
+            search = [search]
+        '''
         if flightid:
             if isinstance(flightid,str):
                 # single flightid
@@ -817,13 +832,18 @@ class DCS(object):
                 # single flightname
                 legs = MIS.select().where(MIS.FlightName==flightname).order_by(MIS.FlightPlan,MIS.Leg).dicts()
             else:
-                legs = MIS.select().where(MIS.FlightPlan.in_(flightnam)).order_by(MIS.FlightPlan,MIS.Leg).dicts()
+                legs = MIS.select().where(MIS.FlightPlan.in_(flightname)).order_by(MIS.FlightPlan,MIS.Leg).dicts()
             #legs = [leg.__data__ for leg in legs]
             legs = list(legs)
             legs = legs if legs else None
         else:
             legs = None
         return legs
+        '''
+        legs = MIS.select().where((MIS.FlightPlan.in_(search)) |
+                                  (MIS.FlightName.in_(search)) |
+                                  (MIS.ObsBlkID.in_(search))).order_by(MIS.FlightPlan,MIS.Leg)
+        return self._proc_res(legs, MIS, *args, **kwargs)
 
     def _query_POS_table(self, search, guide, *args, **kwargs):
         if isinstance(search,str):
@@ -840,7 +860,7 @@ class DCS(object):
             
             
 
-    def _getObsPlan(self, planID,
+    def _getObsPlan(self, search,
                     rel='observationPlanning/DbProxy/getObsPlanAORs.jsp',
                     form='DIRECT',
                     raw=False,
@@ -850,7 +870,7 @@ class DCS(object):
                     sql=False,
                     insert=True):
         """Download AOR xml, and store in database."""
-        planID = _aorID_to_planID(planID)
+        planID = _aorID_to_planID(search)
         query = (self.dcsurl/rel).with_query({'origin':'GI','obsplanID':planID})
         cfile = self._queryDCS(query,form)
 
@@ -868,7 +888,7 @@ class DCS(object):
         if raw:
             return cfile
 
-        aors = self._query_AOR_table(planID, sql=sql, raw=raw,
+        aors = self._query_AOR_table(search, sql=sql, raw=raw,
                                      as_table=as_table,as_json=as_json,as_pandas=as_pandas)
         return aors
         
@@ -912,6 +932,7 @@ class DCS(object):
                        rel='flightPlan/downloadFlightPlanFile.jsp',
                        form='DIRECT',
                        local=None,
+                       sql=False,
                        utctab=False,
                        raw=False,
                        ObsBlk=None,
@@ -966,16 +987,9 @@ class DCS(object):
         if raw:
             return cfile
 
-        legs = DCS._query_MIS_table(flightid=flightid,ObsBlk=ObsBlk)
-
-        if as_table:
-            return MIS.as_table(legs)
-        
-        if as_pandas:
-            return MIS.as_pandas(legs)
-        
-        if as_json:
-            return MIS.as_json(legs)
+        legs = self._query_MIS_table(search=flightid, ObsBlk=ObsBlk,
+                                     sql=sql, raw=raw,
+                                     as_table=as_table,as_json=as_json,as_pandas=as_pandas)
         return legs
 
 

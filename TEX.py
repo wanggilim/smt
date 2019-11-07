@@ -20,7 +20,7 @@ from aplpy import FITSFigure
 from pathlib import Path
 from astropy import log
 from astropy.table import Table,Column,vstack,hstack,MaskedColumn
-from collections import deque
+from collections import deque,defaultdict
 from astropy.utils.console import ProgressBar
 from regions import LineSkyRegion
 from configparser import ConfigParser
@@ -43,7 +43,7 @@ warnings.filterwarnings('ignore',category=AstropyUserWarning)
 warnings.filterwarnings('ignore',category=AstropyWarning)
 np.warnings.filterwarnings('ignore')
 
-DEBUG = True
+DEBUG = False
 
 if DEBUG is False:
     log.disable_warnings_logging()
@@ -106,8 +106,8 @@ IMGOPTIONS = {'width':0.3, 'height':0.3,
               'invert':True,'irsurvey':None,
               'compass':True,'nofigure':False}
 
-TARFOFFSET = {'HAWC_PLUS':40.6*u.deg,
-              'FORCAST':3*u.deg}
+TARFOFFSET = {'HAWC_PLUS':3*u.deg,
+              'FORCAST':40.6*u.deg}
 
 
 HAWC_SIO = {
@@ -167,6 +167,23 @@ def make_box(center, width, height, angle=0*u.deg, TARFoffset=0*u.deg,label=None
                    'color':color,'center':center,'label':label,'name':name,
                    'recenter':recenter}
 
+    elif kwargs.get('scan'):
+        try:
+            splitgap = PIXSIZE[label]*u.arcsec
+        except KeyError:
+            if 'G' in label:
+                splitgap = PIXSIZE['FORCAST_GSM']*u.arcsec
+            else:
+                splitgap = PIXSIZE['FORCAST_IMG']*u.arcsec
+        r_width = width/2
+        boxangle = (np.arctan2(height,width).to(u.deg)+90*u.deg)/2
+        offset = angle + TARFoffset
+        # keep boresite at R0 center for HAWC+
+        if 'TOT' in label:
+            center = center.directional_offset_by(-90*u.deg+offset,r_width/2-splitgap*2)
+            
+        return make_box(center,width,height,angle,TARFoffset,label,
+                        linewidth,color,name,split=False,scan=False)
 
     else:
         diag = np.hypot(width/2,height/2)
@@ -468,18 +485,26 @@ def make_overview(leg, tex=True):
                 footer[k] = '[%+.2f, %+.2f]' % (l['%s_start'%k],l['%s_end'%k])
             else:
                 footer[k] = '[%.1f, %.1f]' % (l['%s_start'%k],l['%s_end'%k])
+        elif k == 'MoonAngle':
+            footer[k] = '%i$^{\circ}$'%int(l[k])
         else:
             footer[k] = l[k]
 
     if tex:
         footer1 = '\quad '.join(['%s: %s'%(k,footer[k]) for k in mcols[0:3]])
         footer1 = ' '.join((footer1,'deg/min'))
+        # add priority
+        prior = overview.pop('Priority')
+        if prior:
+            footer1 = '\quad '.join((footer1,'Priority %s'%prior))
         footer2 = '\quad '.join(['%s: %s'%(k,footer[k]) for k in mcols[-4:]])
         footer2 = ' '.join((footer2,'deg/min'))
         footer = '%s\\\\\n%s'%(footer1,footer2)
         footer = footer.replace('ROFRT','rate') \
                        .replace('THdgRT','rate') \
-                       .replace('Moon','Moon ')
+                       .replace('Moon','Moon ') \
+                       .replace('%','\%')
+        footer = ''.join((r'\\[0.5em]','\n',footer))
 
     overview['footer'] = footer
 
@@ -509,6 +534,26 @@ def generate_overview_tex(overview, metakeys=('header','footer')):
 
     # convert to table
     overview = Table(data=[overview],names=overview.keys(),meta=meta)
+
+    # remove ra/dec cols if non-sidereal object
+    if overview['RA'][0] is None:
+        overview.remove_columns(('RA','DEC'))
+        #overview['RA'][0] = ''
+        #overview['DEC'][0] = ''
+
+    else:
+        # reformat
+        coord = SkyCoord(ra=overview['RA'][0],dec=overview['DEC'][0],unit=(u.hourangle,u.deg))
+        ra,dec = coord.to_string('hmsdms',sep=':',precision=2).split()
+        overview['RA'][0] = ra
+        overview['DEC'][0] = dec
+
+    # safe convert obsblkid
+    try:
+        overview['ObsBlk'] = [blk.replace('_','\_') for blk in overview['ObsBlk']]
+    except AttributeError:
+        overview['ObsBlk'] == ''
+    
     # rename cols to have headercolor
     for col in overview.colnames:
         newcol = '\\cellcolor{headercolor}%s' % col
@@ -525,6 +570,9 @@ def generate_overview_tex(overview, metakeys=('header','footer')):
                                   'preamble':preamble,
                                   'tablefoot':overview.meta['footer']})
         texcode = f.getvalue()
+        if 'RA' not in str(overview.colnames):
+            # push right
+            texcode = texcode.replace(r'\begin{tabular}','\\hspace*{2cm}\n\\begin{tabular}')
     return texcode
 
 def make_details(tab, tex=True, faor=False):
@@ -573,7 +621,7 @@ def make_details(tab, tex=True, faor=False):
             # polarimetry
             else:
                 t['ObsPlanConfig'] = 'POL'
-                t['Band'] = '/'.join((filt,filt))
+                t['InstrumentSpectralElement1'] = '/'.join((filt,filt))
                 
         # keep certain keys
         detail = [{key:t[key] for key in keys} for t in tab]
@@ -606,7 +654,7 @@ def make_details(tab, tex=True, faor=False):
             if len(footer) == 1:
                 footer = footer.pop()
             else:
-                footer = '\\\\\n'.join(footer)
+                footer = '\\\\\n'.join(sorted(footer))
             footer = 'dither\quad\quad %s\\\\'%footer
             detail.meta['footer'] = footer
 
@@ -698,7 +746,7 @@ def make_details(tab, tex=True, faor=False):
             detail[col].format = COL_FORMATTER
 
         # set int formatter
-        for col in ('NodTime','Repeat','ScanDur','ChopThrow','ChopAngle',
+        for col in ('NodTime','Repeat','ScanDur','ChopThrow','ChopAngle','ScanTime',
                     'ScanAmp','ScanRate','NodThrow','NodAngle','TotalTime','IntTime'):
             try:
                 try:
@@ -829,7 +877,7 @@ def make_positions(tab, tex=True):
         rows.append((aorid,name,ra,dec,order))
 
     if not rows:
-        return None
+        return ''
     position = Table(rows=list(rows),names=('AORID','Name','RA','DEC','Order'))
     position.meta['caption'] = '\\captionline{Positions}{}'
 
@@ -902,6 +950,9 @@ def get_pos_bundle(tab, d, odir):
     return postarfile
 
 def generate_overlays(table):
+    # add row index for color cycle
+    for idx,row in enumerate(table):
+        row['cidx'] = idx
     overlays = list(map(generate_overlay,table))
     for overlay,row in zip(overlays,table):
         row['overlay'] = overlay
@@ -919,7 +970,7 @@ def generate_overlay(row,nod=True,dithers=True):
     rolls = (row['ROF_start'],row['ROF_end'])
 
     # override displayed roll if specified in config
-    roll = row['roll']
+    roll = row.get('roll')
     if isinstance(roll,bool) and roll:
         roll = float(rolls[0])*u.deg
     if isinstance(roll,(float,int,np.float,np.int)):
@@ -934,8 +985,9 @@ def generate_overlay(row,nod=True,dithers=True):
     TARFoffset = TARFOFFSET[row['InstrumentName']]
 
     # get band and mode for FOV
-    band = row['InstrumentSpectralElement1']
+    band = row['InstrumentSpectralElement1'].split('_')[-1]
     mode = row['ObsPlanConfig']
+
     mode = 'TOT' if mode == 'TOTAL_INTENSITY' else 'POL'
 
     label = '%s_%s'%(band,mode)
@@ -959,7 +1011,7 @@ def generate_overlay(row,nod=True,dithers=True):
 
     
     overlay = make_box(coord,width,height,roll,TARFoffset,label=label,name=name,
-                       color=COLORS[row['Leg']%len(COLORS)],split=split,aorid=row['aorID'])
+                       color=COLORS[row['cidx']%len(COLORS)],split=split,aorid=row['aorID'])
     
     overlay['roll'] = (float(rolls[0])*u.deg,float(rolls[1])*u.deg)
 
@@ -1031,7 +1083,13 @@ def generate_overlay(row,nod=True,dithers=True):
 
 
     else:
-        pass
+        ampx,ampy = u.Quantity(row['ScanAmplitudeEL'],u.arcsec), \
+                    u.Quantity(row['ScanAmplitudeXEL'],u.arcsec)
+        ampx += width
+        ampy += height
+        overlay['dithers'] = [make_box(coord,ampx,ampy,roll,TARFoffset,label=label,name=name,
+                                       color=COLORS[row['cidx']%len(COLORS)],scan=True,
+                                       aorid=row['aorID'])]
         # we are scanning
         '''
         if 'Scan Amp' in row.colnames and row['Scan Amp'] is not None:
@@ -1087,7 +1145,7 @@ def get_recenter_image(overlaylist):
 
     return recenter
 
-def make_figures(table,fdir,reg=False,irsurvey=None,savefits=False,**kwargs):
+def make_figures(table,fdir,reg=False,guidestars=None,irsurvey=None,savefits=False,**kwargs):
     '''Generate figure from each overlay'''
 
     overlays = [row['overlay'] for row in table if row.get('overlay')]
@@ -1108,14 +1166,17 @@ def make_figures(table,fdir,reg=False,irsurvey=None,savefits=False,**kwargs):
     if fig is None:
         return None
 
-
-    '''
     if guidestars is not None:
-        # show ALL guide stars from POS
-        # TODO: filter out guide stars if not within footprint
-        fig.show_markers(guidestars.ra,guidestars.dec,
+        pass
+    '''
+        guides = guidestars[table[0]['ObsBlk']]
+        guides = list(filter(lambda g: g['Radius'] < np.hypot(table[0]['width'],table[0]['height']),guides))
+        guidecoord = SkyCoord([g['COORD'] for g in guides])
+        fig.show_markers(guidecoord.ra,guidecoord.dec,
                          marker='o',s=80,
                          linewidths=2)#edgecolor='#FFD700')
+        for g in guides:
+            fig.add_label(g['COORD'].ra.value, g['COORD'].dec.value, g['Name'])
     '''
 
 
@@ -1162,12 +1223,9 @@ def make_figures(table,fdir,reg=False,irsurvey=None,savefits=False,**kwargs):
 
 def make_comments(table):
     '''Generate tex for obsblk comments'''
-    if 'ObsBlkComment' not in table.colnames:
+    comments = table[0].get('ObsBlkComment','')
+    if not comments:
         return ''
-    comments = [c for c in table['ObsBlkComment'].filled('') if c not in ('','--')]
-
-    comments = np.unique(comments)
-    comments = '\n\n'.join(comments)
 
     #safe convert to latex
     comments = utf8tolatex(comments)
@@ -1313,8 +1371,7 @@ def write_tex_dossier(tables, name,title,filename,
     over_func = partial(make_overview,tex=tex)
     overviews = ProgressBar.map(over_func,tables,multiprocess=True)
 
-    print(overviews)
-    exit()
+    legnames = ['Leg %i (%s)'%(table[0]['Leg'],table[0]['Name'].replace('_','\_')) for table in tables]
     #legnames = [o.meta['legName'].replace('_','\_') for o in overviews]
     #overviews = ProgressBar.map(generate_overview_tex, overviews, multiprocess=True)
 
@@ -1339,7 +1396,7 @@ def write_tex_dossier(tables, name,title,filename,
         pdir = Path(filename).parent/'pos'
         pdir.mkdir(exist_ok=True)
         for tab in tables:
-            get_pos_bundle(tab,d,pdir)
+            get_pos_bundle(tab,dcs,pdir)
 
     # get im
     #overlays = [get_overlay_params(tab) for tab in tables]
@@ -1352,14 +1409,23 @@ def write_tex_dossier(tables, name,title,filename,
         guidestars = None
     '''
 
+    # get guidestars
+    blkids = {row['ObsBlk'] for table in tables for row in table}
+    guides = dcs.getGuideStars(list(blkids))
+    guidestars = defaultdict(list)
+    for guide in guides:
+        coord = SkyCoord(ra=guide['RA'],dec=guide['Dec'],unit=(u.deg,u.deg))
+        guide['COORD'] = coord
+        guidestars[guide['ObsBlk']].append(guide)
+    
     fdir = Path(filename).parent
 
     # define partial function for multiprocessing
-    figfunc = partial(make_figures,fdir=fdir,reg=reg,
+    figfunc = partial(make_figures,fdir=fdir,reg=reg,guidestars=guidestars,
                       irsurvey=irsurvey,savefits=savefits)
 
     print('Generating figures...')
-    imagefiles = ProgressBar.map(figfunc,tables,multiprocess=True)
+    imagefiles = ProgressBar.map(figfunc,tables,multiprocess=False)
 
     if sio:
         print('Generating comments...')
@@ -1369,8 +1435,7 @@ def write_tex_dossier(tables, name,title,filename,
         #comments = ['%s\n\n%s'%(c0,c1) for c0,c1 in zip(comments0,comments)]
     else:
         print('Gathering comments...')
-        print('STILL NEED TO DO THIS')
-        #comments = ProgressBar.map(make_comments,tables,multiprocess=True)
+        comments = ProgressBar.map(make_comments,tables,multiprocess=False)
 
     '''
     imagefiles = deque()
@@ -1424,6 +1489,7 @@ def write_tex_dossier(tables, name,title,filename,
             bar.update()
     '''
 
+    
     render = {'flightName':name.replace('_','\_'),
               'title':title,
               'tables':zip(legnames,overviews,

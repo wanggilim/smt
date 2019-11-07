@@ -93,7 +93,7 @@ def make_position(request):
     coord = SkyCoord(ra=ra,dec=dec,equinox=equ,unit=(u.deg,u.deg))
     return coord
 
-def combine_AOR_data(name,position,rkeys,dkeys,blkdict,meta):
+def combine_AOR_data(name,position,rkeys,dkeys,blkdict,comments,meta):
     row = meta.copy()
     row.update(rkeys)
     row.update(dkeys)
@@ -104,9 +104,11 @@ def combine_AOR_data(name,position,rkeys,dkeys,blkdict,meta):
         row['RA'] = None
         row['DEC'] = None
     row['ObsBlk'] = blkdict.get(row['aorID'],None)
+    if comments:
+        row['ObsBlkComment'] = comments.get(row['ObsBlk'])
     return row
 
-def combine_GUIDE_data(target,aorid,dkeys,akeys,mkeys,meta):
+def combine_GUIDE_data(target,aorid,dkeys,akeys,mkeys,blkdict,meta):
     row = dkeys
     row.update(akeys)
     row.update(mkeys)
@@ -115,6 +117,7 @@ def combine_GUIDE_data(target,aorid,dkeys,akeys,mkeys,meta):
     row['target'] = target
     row['planID'] = '_'.join(aorid.split('_')[0:-1])
     row['pkey'] = ': '.join((aorid,row['Name']))
+    row['ObsBlk'] = blkdict.get(row['aorID'],None)
     return row
 
 def combine_MIS_data(legnum,dkeys,attrs,meta):
@@ -126,8 +129,11 @@ def combine_MIS_data(legnum,dkeys,attrs,meta):
     row['ObsBlk'] = row['ObsBlkID']
     row['planID'] = row['ObsPlanID']
     row['fkey'] = 'Leg%s_%s' % (legnum,row['FlightPlan'])
-    row['Comment'] = row['Comment'].replace('<br>','\n')
-    
+    try:
+        row['Comment'] = row['Comment'].replace('<br>','\n')
+    except AttributeError:
+        row['Comment'] = None
+        
     return row
 
 def combine_FAOR_data(config,run,meta):
@@ -210,6 +216,12 @@ def AOR_to_rows(filename, aorcfg):
     except AttributeError:
         obsplans = None
 
+    try:
+        comments = {obsplan.obsblockid.text:obsplan.comment.text for obsplan in obsplans}
+    except (AttributeError,TypeError):
+        comments = None
+
+
     if obsplans is not None:
         # mapping of obsblk:[aorid,aorid]...
         obsblkdict = {obs.obsblockid.text:map(lambda x:x.text,obs.find_all('aorid')) for obs in obsplans}
@@ -222,7 +234,7 @@ def AOR_to_rows(filename, aorcfg):
         blkdict = {aorid:None for aorid in aorlist}
 
     # combine all xml data into row
-    row_func = partial(combine_AOR_data,blkdict=blkdict,meta=meta)
+    row_func = partial(combine_AOR_data,blkdict=blkdict,comments=comments,meta=meta)
     rows = map(row_func,names,positions,rkeys,dkeys)
 
     return list(rows)
@@ -414,6 +426,23 @@ def GUIDE_to_rows(filename, guidecfg):
     # Get target name from request
     targets = (g.parent.parent.find('name').text for g in gstars)
     aorids = (g.parent.parent.parent.instrument.data.aorid.text for g in gstars)
+    
+    # Get obsblk info from request.obsplanobsblockinfolist
+    try:
+        obsplans = aor.obsplanobsblockinfolist.find_all('obsblockinfo')
+    except AttributeError:
+        obsplans = None
+
+    if obsplans is not None:
+        # mapping of obsblk:[aorid,aorid]...
+        obsblkdict = {obs.obsblockid.text:map(lambda x:x.text,obs.find_all('aorid')) for obs in obsplans}
+
+        # reverse dictionary, to have aorids mapped to obsblocks
+        blkdict = {aorid:block for block,aorlist in obsblkdict.items() for aorid in aorlist}
+    else:
+        # likely a calibrator
+        aorlist = (r.data.aorid.text for r in requests)
+        blkdict = {aorid:None for aorid in aorlist}
 
     # get mags
     mks = json.loads(guidecfg['mag_keys'])
@@ -432,7 +461,7 @@ def GUIDE_to_rows(filename, guidecfg):
     #mkeys = ({k:'%s_%s'%(v['type'],v.text) if np.float(v.text) != 999 else None for k,v in m.items()} for m in mtags)
     '''
 
-    row_func = partial(combine_GUIDE_data,meta=meta)
+    row_func = partial(combine_GUIDE_data,blkdict=blkdict,meta=meta)
     rows = map(row_func,targets,aorids,dkeys,akeys,mkeys)
 
     return list(rows)

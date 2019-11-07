@@ -117,7 +117,6 @@ def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID'):
     #aor = dcs.getAORs(['07_0225','07_0225_8'],guide=True,pos=True,as_table=True)
     #print(aor)
     aor = dcs.getAORs(leg[obsblkkey])
-    
     if isinstance(aor,dict):
         aor = [aor]
 
