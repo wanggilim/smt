@@ -108,7 +108,8 @@ class DCS(object):
             self.mcfg = modelcfg
             
         # setup database with model config
-        self.db = self._initialize_database(self.mcfg, models)
+        self.models = models
+        self.db = self._initialize_database(models)
         
         self.loggedin = False
 
@@ -122,11 +123,24 @@ class DCS(object):
         with set_temp_cache(self.cachedir):
             clear_download_cache(None)
 
+    def _get_db_file(self):
+        return Path(self.cachedir)/self.mcfg['DEFAULT']['db_file']
+            
+    def _remove_db(self):
+        db_file = self._get_db_file()
+        db_file.unlink(missing_ok=True)
+        return db_file
+        
+
     def _force_db_sync(self):
         """Ingest all downloaded files in cache into database"""
         urlmap = self.cachedir/'astropy/download/py3/urlmap.dir'
         if not urlmap.exists():
             return False
+
+        # remove db_file and re-init
+        self._remove_db()
+        self.db = self._initialize_database(self.models)
 
         print('Resyncing local DB with cache @ %s'%urlmap)
         with set_temp_cache(self.cachedir):
@@ -160,13 +174,13 @@ class DCS(object):
                         continue
                     
 
-    def _initialize_database(self, mcfg, models=('AOR','MIS','FAOR','POS','GUIDE','AORSEARCH')):
+    def _initialize_database(self, models=('AOR','MIS','FAOR','POS','GUIDE','AORSEARCH')):
         """Initialize database, create models dynamically, and register models globally"""
-        db_file = mcfg['DEFAULT']['db_file']
+        db_file = self._get_db_file()
         db = SqliteDatabase(db_file)
 
         # generate models
-        mods = [DBmodels.ModelFactory(name, mcfg, db) for name in models]
+        mods = [DBmodels.ModelFactory(name, self.mcfg, db) for name in models]
 
         # create database
         with db:

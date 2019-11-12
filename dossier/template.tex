@@ -1,0 +1,109 @@
+\documentclass[12pt,letterpaper]{journal}
+
+\usepackage[hmargin=0.83in,vmargin=1in]{geometry}
+\usepackage[table, svgnames]{xcolor}
+\usepackage{array}
+\usepackage{etoolbox}
+\usepackage{graphicx}
+\usepackage{placeins}
+
+% SETUP HEADER LINE
+\newcommand{\setheader}[2]{%
+  \thispagestyle{headings}%
+  \markright{#1\hfill #2\hfill}%
+}
+
+% SETUP TABLE CAPTIONS
+\usepackage{float}
+\floatstyle{plaintop}
+\restylefloat{table}
+\usepackage{caption}
+\captionsetup[table]{position=top,font=large,textfont=bf,labelformat=empty,justification=raggedright,singlelinecheck=false}
+\newcommand{\captionline}[2]{%
+  \par\medskip\noindent
+  \makebox[0pt][l]{#1}%
+  \makebox[\textwidth][c]{}%
+  \makebox[0pt][r]{\normalsize \textmd{#2}}\par\medskip}
+
+% EXPAND CELL PADDING
+\setlength{\tabcolsep}{1em} % for the horizontal padding
+{\renewcommand{\arraystretch}{1.2}% for the vertical padding
+
+% SERIES NAME FOR FIRST PAGE
+\newenvironment{flight}{%
+  \setlength\topsep{0pt}
+  \setlength\parskip{0pt}
+  \Huge\bf
+  \begin{center}
+}{%
+  \end{center}
+}
+
+
+%# CHANGE TABULAR TO HAVE COLORED HEADER
+\definecolor{headercolor}{gray}{0.8}
+%\AtBeginEnvironment{tabular}{%
+%  \rowcolors{1}{%
+%    \ifnumless{\rownum}{2}{%
+%      headercolor}{white}%
+%  }{}%
+%}
+
+%# CHANGE FIRST ROW TO BOLD
+\newcolumntype{$}{>{\global\let\currentrowstyle\relax}}
+\newcolumntype{^}{>{\currentrowstyle}}
+\newcommand{\rowstyle}[1]{\gdef\currentrowstyle{#1}%
+  #1\ignorespaces
+}
+
+%# OPTIONAL SPLASH
+\newcommand{\splash}{%
+  \begin{wrapfigure}{l}{\textwidth}
+    \begin{adjustwidth}{-0.83in}{0in}
+      \vspace*{5in}
+      \includegraphics[width=4in,angle=90]{sofiabanner}
+    \end{adjustwidth}
+  \end{wrapfigure}
+}
+
+%# IMAGEFILE
+\newcommand{\makeimage}[1]{%
+  \begin{figure}
+    \includegraphics[width=\textwidth]{#1}%
+  \end{figure}
+}
+
+
+%#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{document}
+
+\begin{flight}
+  \VAR{flightName}
+\end{flight}
+
+%#%%%%%% for legname,overview,comments,detail,position,imagefile,comment in tables
+%% for legname,overview,detail,position,imagefile,comment in tables
+\setheader{\VAR{legname}}{\VAR{title}}
+
+\VAR{overview}
+
+\VAR{comment}
+
+\VAR{detail}
+
+\VAR{position}
+
+\FloatBarrier
+
+%% if imagefile is not none
+  \makeimage{\VAR{imagefile}}
+%% endif
+
+\clearpage
+%#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  
+%% endfor
+
+
+\end{document}
