@@ -124,17 +124,17 @@ class CMap(ChainMap):
 
 
     @classmethod
-    def from_AOR_dict(cls, cfg, aor, **kwargs):
+    def from_AOR_dict(cls, cfg, aor, blkkey='ObsBlkID',flkey='FlightName',misskey='FlightPlan',**kwargs):
         """Make CMap from aor dictionary.  Sections are looked up with decreasing level of specificity."""
 
         # these are listed from last to first in look up sequence
         
         planid = aor['planID']                             # 07_0225
-        blkid = aor['ObsBlkID']                            # OB_07_0225_01
+        blkid = aor[blkkey]                                # OB_07_0225_01
         aorid = aor['aorID']                               # 07_0225_1        
         
-        flight = aor['FlightName']                         # GAVIN
-        mission = aor['FlightPlan']                        # 201910_FO_GAVIN
+        flight = aor[flkey]                                # GAVIN
+        mission = aor[misskey]                             # 201910_FO_GAVIN
 
         flight_planid = '_'.join((flight,planid))          # GAVIN_07_0225
         mission_planid = '_'.join((mission,planid))        # 201910_FO_GAVIN_07_0225

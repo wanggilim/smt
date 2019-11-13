@@ -18,7 +18,7 @@ setup(
     package_data={
         '':['*.tex','*.cfg']
     },
-    install_requires=['astropy','beautifulsoup4','peewee',
+    install_requires=['astropy','beautifulsoup4','peewee','blessings',
                       'numpy','pandas','mechanicalsoup','scipy',
                       'urlpath','matplotlib','regions','aplpy',
                       'requests','astroquery','shapely','pylatexenc'],

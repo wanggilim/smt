@@ -103,9 +103,9 @@ def combine_AOR_data(name,position,rkeys,dkeys,blkdict,comments,meta):
     except AttributeError:
         row['RA'] = None
         row['DEC'] = None
-    row['ObsBlk'] = blkdict.get(row['aorID'],None)
+    row['ObsBlkID'] = blkdict.get(row['aorID'],None)
     if comments:
-        row['ObsBlkComment'] = comments.get(row['ObsBlk'])
+        row['ObsBlkComment'] = comments.get(row['ObsBlkID'])
     return row
 
 def combine_GUIDE_data(target,aorid,dkeys,akeys,mkeys,blkdict,meta):
@@ -117,7 +117,7 @@ def combine_GUIDE_data(target,aorid,dkeys,akeys,mkeys,blkdict,meta):
     row['target'] = target
     row['planID'] = '_'.join(aorid.split('_')[0:-1])
     row['pkey'] = ': '.join((aorid,row['Name']))
-    row['ObsBlk'] = blkdict.get(row['aorID'],None)
+    row['ObsBlkID'] = blkdict.get(row['aorID'],None)
     return row
 
 def combine_MIS_data(legnum,dkeys,attrs,meta):
@@ -126,7 +126,7 @@ def combine_MIS_data(legnum,dkeys,attrs,meta):
     row.update(dkeys)
     row.update(attrs)
 
-    row['ObsBlk'] = row['ObsBlkID']
+    #row['ObsBlk'] = row['ObsBlkID']
     row['planID'] = row['ObsPlanID']
     row['fkey'] = 'Leg%s_%s' % (legnum,row['FlightPlan'])
     try:
@@ -288,9 +288,10 @@ def FAOR_to_rows(filename, faorcfg,faor=None):
         
     # Get meta data
     meta = {key:faor.preamble[key] for key in json.loads(faorcfg['meta_keys'])}
+    meta['FlightName'] = meta['FlightPlan'].split('_')[-1]
     meta['FILENAME'] = str(Path(filename).resolve())
     meta['planID'] = '_'.join(faor.config[0]['AORID'].split('_')[0:-1])
-    meta['fkey'] = 'Leg%s_%s' % (meta['Leg'],meta['Flight'])
+    meta['fkey'] = 'Leg%s_%s' % (meta['Leg'],meta['FlightPlan'])
 
     # save timestamp
     stats = Path(filename).stat()

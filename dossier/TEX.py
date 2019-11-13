@@ -10,7 +10,6 @@ import astropy.units as u
 from astropy.io import fits
 import numpy as np
 import re
-#from splinter import Browser
 import matplotlib.pyplot as plt
 from astroquery.skyview import SkyView
 from matplotlib.cbook.deprecation import MatplotlibDeprecationWarning
@@ -28,8 +27,6 @@ from functools import partial
 #from FAOR import FAOR
 from .CMap import CMap
 from . import MSX
-#import cloudpickle
-import pickle
 #from planner import split_leg
 from requests.exceptions import ChunkedEncodingError, SSLError, ConnectionError
 from regions import RectangleSkyRegion,PointSkyRegion,RegionMeta,RegionVisual,write_ds9,ds9_objects_to_string,DS9Parser
@@ -45,15 +42,18 @@ warnings.filterwarnings('ignore',category=AstropyWarning)
 np.warnings.filterwarnings('ignore')
 
 DEBUG = False
+MP = False if DEBUG else True
 
 if DEBUG is False:
     log.disable_warnings_logging()
     log.setLevel('ERROR')
 
+# formatters for astropy table columns
 COL_FORMATTER = lambda x: x.replace('_','\_')
 INT_FORMATTER = lambda x: '%i'%int(np.float(x)) if x not in (None,'None',-9999,'--') else ''
 
 def INT_CONVERTER(row,cols):
+    """Convert row to ints from strings or floats"""
     for col in cols:
         if col not in row:
             continue
@@ -167,7 +167,6 @@ def make_box(center, width, height, angle=0*u.deg, TARFoffset=0*u.deg,label=None
         r0_center = center
         r1_center = center.directional_offset_by(-90*u.deg+offset,r_width+splitgap)
 
-        #recenter = center.directional_offset_by(90*u.deg+offset, r_width/2+splitgap/2)
         recenter = center.directional_offset_by(-90*u.deg+offset,r_width/2+splitgap/2)
         
         r0 = make_box(r0_center,r_width,height,angle,TARFoffset,label,
@@ -228,21 +227,12 @@ def make_box(center, width, height, angle=0*u.deg, TARFoffset=0*u.deg,label=None
             vmeta = RegionVisual(vmeta)
             reg = RectangleSkyRegion(center,width,height,angle=offset,
                                      meta=meta,visual=vmeta)
-            '''
-            if 'aorid' in kwargs:
-                # IGNORE 'aorid'---messes up the comment format
-                #reg = RectangleSkyRegion(center,width,height,angle=offset,meta=RegionMeta({'label':name,
-                #                                                                           'comment':'(AORID:%s)'%kwargs['aorid']}))
-                reg = RectangleSkyRegion(center,width,height,angle=offset,meta=RegionMeta({'label':name}))
-            else:
-                reg = RectangleSkyRegion(center,width,height,angle=offset,meta=RegionMeta({'label':name}))
-            '''
             boxdict['reg'] = ds9_objects_to_string([reg])
     return boxdict
 
 
 def make_dithers(center,scale,angle=0*u.deg):
-    '''Generate box for dithers'''
+    """Generate box for dithers"""
     diag = np.hypot(scale,scale)
     posangle = angle+45*u.deg
     tl = center.directional_offset_by(posangle,diag)
@@ -482,7 +472,7 @@ def make_overview(leg, tex=True):
     '''Make table of overview stats for leg'''
 
     # overview cols to extract
-    ocols = ('Start','ObsDur','Target','ObsBlk','Priority','RA','DEC')
+    ocols = ('Start','ObsDur','Target','ObsBlkID','Priority','RA','DEC')
 
     # metacols
     hcols = ('Leg','Name','PI')
@@ -570,9 +560,9 @@ def generate_overview_tex(overview, metakeys=('header','footer')):
 
     # safe convert obsblkid
     try:
-        overview['ObsBlk'] = [blk.replace('_','\_') for blk in overview['ObsBlk']]
+        overview['ObsBlkID'] = [blk.replace('_','\_') for blk in overview['ObsBlkID']]
     except AttributeError:
-        overview['ObsBlk'] == ''
+        overview['ObsBlkID'] == ''
     
     # rename cols to have headercolor
     for col in overview.colnames:
@@ -789,7 +779,7 @@ def make_details(tab, tex=True, faor=False):
         # set units
         detail.meta['units'] = {'NodTime':'s','ChopThrow':r'$^{\prime\prime}$','ChopAngle':r'$^\circ$','ScanDur':'s','ScanAmp':r'$^{\prime\prime}$','ScanRate':'$^{\prime\prime}$/s','TotalTime':'s','NodDwell':'s','NodAngle':r'$^\circ$','NodThrow':r'$^{\prime\prime}$','IntTime':'s'}
 
-        caption = '\\captionline{Observation details %s:}{}' % tab[0]['ObsBlk']
+        caption = '\\captionline{Observation details %s:}{}' % tab[0]['ObsBlkID']
         detail.meta['caption'] = caption.replace('_','\_')
 
         # if FORCAST, split into two tables
@@ -1110,25 +1100,6 @@ def generate_overlay(row,nod=True,dithers=True):
         overlay['dithers'] = [make_box(coord,ampx,ampy,roll,TARFoffset,label=label,name=name,
                                        color=COLORS[row['cidx']%len(COLORS)],scan=True,reglabel='scan',
                                        aorid=row['aorID'])]
-        # we are scanning
-        '''
-        if 'Scan Amp' in row.colnames and row['Scan Amp'] is not None:
-            amp = row['Scan Amp']
-            if '/' in amp:
-                ampx,ampy = [float(x) for x in amp.split('/')]
-            else:
-                ampx = float(amp)
-                ampy = ampx
-            ampx *= u.arcsec
-            ampy *= u.arcsec
-
-            ampx += width
-            ampy += height
-
-            ####overlay['dithers'] = [make_box(overlay['center'],width=ampx,height=ampy,angle=roll,TARFoffset=TARFoffset,label=label,color=overlay['color'])]
-            ## THIS IS STILL BROKEN
-            overlay['dithers'] = make_box(overlay['center'],width=ampx,height=ampy,angle=roll,TARFoffset=TARFoffset,label=label,color=overlay['color'])
-        '''
 
     return overlay
 
@@ -1147,21 +1118,17 @@ def get_overlay_params(tab):
             roll = None
         overlay = generate_overlay(tab,idx=idx,roll=roll,TARFoffset=TARFoffset)
         overlays.append(overlay)
-        #overlays = [generate_overlay(tab,TARFoffset,idx=idx,roll=roll) for idx,row in enumerate(tab)]
+        
     overlays = [overlay for overlay in overlays if overlay is not None]
     return overlays
 
 def get_recenter_image(overlaylist):
     '''Get longest wavelength "recenter"'''
     recenter = None
-    #overlaylist = sorted(overlaylist,key=lambda x: x['label'])
     for overlay in overlaylist:
         if 'recenter' not in overlay:
             continue
         recenter = overlay['recenter']
-        #print(overlay['label'])
-        #print(recenter.to_string('hmsdms'))
-    #print()
 
     return recenter
 
@@ -1197,7 +1164,7 @@ def make_figures(table,fdir,reg=False,guidestars=None,irsurvey=None,savefits=Fal
             footprint = WCS(hdu[0]).calc_footprint()
         box = Polygon(footprint)
         
-        guides = guidestars[table[0]['ObsBlk']]
+        guides = guidestars[table[0]['ObsBlkID']]
         guidecoord = SkyCoord([g['COORD'] for g in guides])
 
 
@@ -1221,7 +1188,7 @@ def make_figures(table,fdir,reg=False,guidestars=None,irsurvey=None,savefits=Fal
             
         
     '''
-        guides = guidestars[table[0]['ObsBlk']]
+        guides = guidestars[table[0]['ObsBlkID']]
         guides = list(filter(lambda g: g['Radius'] < np.hypot(table[0]['width'],table[0]['height']),guides))
         guidecoord = SkyCoord([g['COORD'] for g in guides])
         fig.show_markers(guidecoord.ra,guidecoord.dec,
@@ -1400,29 +1367,9 @@ def write_tex_dossier(tables, name,title,filename,
     #template = latex_jinja_env.get_template(template)
     template = get_latex_template(template)
 
-    # extract obsblk comments
-    #comments = tables.parent.meta['ObsBlkComments']
-    
-    # remove tables with non obs legs
-    #tables = list(filter(lambda tab:tab['ObsBlk'][0] not in ['',None], tables))
-
-    # remove duplicate aorids
-    #tables = [unique(table,keys=['Mode','AORID','Name','Band']) for table in tables]
-
-    # get utctab just for intervals
-    #fid = tables[0].meta['Flight Plan ID']
     if not dcs:
         # initialize DCS link
         dcs = DCS(refresh_cache=refresh_cache,modelcfg=mconfig)
-    #utctabs = d.getFlightPlan(fid, local=local, utctab=True)
-    #utctabs = list(filter(lambda x:'Leg' in x.meta, utctabs))
-
-    # sort by order
-    #orders = [table['Order'] for table in tables]
-
-
-    #for table in tables:
-    #    table.sort('order')
 
     # process config file
     if config:
@@ -1433,135 +1380,65 @@ def write_tex_dossier(tables, name,title,filename,
 
     if faor:
         # merge faor information
-        #  locate faors
         print('Matching faors to AORIDs...')
         tables = match_FAORs(tables,dcs)
 
     # make overview tables
-    #overviews = [make_overview(tab) for tab in tables]
     print('Generating overview...')
     over_func = partial(make_overview,tex=tex)
-    overviews = ProgressBar.map(over_func,tables,multiprocess=True)
-
+    overviews = ProgressBar.map(over_func,tables,multiprocess=MP)
     legnames = ['Leg %i (%s)'%(table[0]['Leg'],table[0]['Name'].replace('_','\_')) for table in tables]
-    #legnames = [o.meta['legName'].replace('_','\_') for o in overviews]
-    #overviews = ProgressBar.map(generate_overview_tex, overviews, multiprocess=True)
 
 
     # make details tables
-    #details = [make_details(tab) for tab in tables]
     print('Writing detail table...')
-    # strip meta data for multiprocessing
-    #metas = [table.meta.copy() for table in tables]
-    #for table in tables:
-    #    table.meta = None
     detail_func = partial(make_details,tex=tex)
-    details = ProgressBar.map(detail_func,tables,multiprocess=True)
+    details = ProgressBar.map(detail_func,tables,multiprocess=MP)
 
     # make pos tables
     print('Writing position table...')
     pos_func = partial(make_positions,tex=tex)
-    positions = ProgressBar.map(pos_func,tables,multiprocess=True)
+    positions = ProgressBar.map(pos_func,tables,multiprocess=MP)
 
     if posfiles:
+        # copy pos files from cache to local dir
         print('Copying posfiles...')
         pdir = Path(filename).parent/'pos'
         pdir.mkdir(exist_ok=True)
         for tab in ProgressBar(tables):
             get_pos_bundle(tab,dcs,pdir)
 
-    # get im
-    #overlays = [get_overlay_params(tab) for tab in tables]
+    # get images
     print('Generating overlays...')
-    tables = ProgressBar.map(generate_overlays,tables,multiprocess=True)
-    '''
-    if guide is not None:
-        guidestars = SkyCoord(ra=guide['RA'],dec=guide['DEC'],unit=(u.hourangle,u.deg))
-    else:
-        guidestars = None
-    '''
+    tables = ProgressBar.map(generate_overlays,tables,multiprocess=MP)
 
     # get guidestars
-    blkids = {row['ObsBlk'] for table in tables for row in table}
+    blkids = {row['ObsBlkID'] for table in tables for row in table}
     guides = dcs.getGuideStars(list(blkids))
     guidestars = defaultdict(list)
     for guide in guides:
         coord = SkyCoord(ra=guide['RA'],dec=guide['Dec'],unit=(u.deg,u.deg))
         guide['COORD'] = coord
-        guidestars[guide['ObsBlk']].append(guide)
+        guidestars[guide['ObsBlkID']].append(guide)
+
     
+    # output directory for figures
     fdir = Path(filename).parent/'figs'
 
     # define partial function for multiprocessing
     figfunc = partial(make_figures,fdir=fdir,reg=reg,guidestars=guidestars,
                       irsurvey=irsurvey,savefits=savefits)
-
     print('Generating figures...')
-    imagefiles = ProgressBar.map(figfunc,tables,multiprocess=True)
+    imagefiles = ProgressBar.map(figfunc,tables,multiprocess=MP)
 
     if sio:
         print('Generating comments...')
-        comments = ProgressBar.map(hawc_sio_comments,tables,multiprocess=True)
-        #comments0 = ProgressBar.map(hawc_sio_comments,tables,multiprocess=True)
-        #comments = ProgressBar.map(make_comments,tables,multiprocess=True)
-        #comments = ['%s\n\n%s'%(c0,c1) for c0,c1 in zip(comments0,comments)]
+        comments = ProgressBar.map(hawc_sio_comments,tables,multiprocess=MP)
     else:
         print('Gathering comments...')
-        comments = ProgressBar.map(make_comments,tables,multiprocess=True)
+        comments = ProgressBar.map(make_comments,tables,multiprocess=MP)
 
-    '''
-    imagefiles = deque()
-    with ProgressBar(len(overlays)) as bar:
-        for overlay,tab in zip(overlays,tables):
-            if overlay is None or not overlay:
-                imagefiles.append(None)
-                continue
-
-            if isinstance(overlay,dict):
-                options = overlay.copy()
-                blk = overlay['obsblk']
-            else:
-                options = overlay[-1].copy()
-                blk = overlay[-1]['obsblk']
-                options['recenter'] = get_recenter_image(overlay)
-
-            if config and cfg.has_section(blk):
-                # override options with cfg
-                cfgoptions = get_cfgoptions(cfg,blk)
-                options.update(**cfgoptions)
-
-            fig = get_image(overlay,**options)
-
-            if guide is not None:
-                # show ALL guide stars from POS
-                # TODO: filter out guide stars if not within footprint
-                fig.show_markers(guidestars.ra,guidestars.dec,
-                                 marker='o',s=80,
-                                 linewidths=2)#edgecolor='#FFD700')
-
-
-            # show chop/nod/dithers
-            for o in overlay:
-                if 'dithers' in o:
-                    for dith in o['dithers']:
-                        fig.show_polygons(dith['box'],edgecolor=dith['color'],lw=1,
-                                          linestyle='dashed',alpha=0.7)
-                if 'nods' in o:
-                    for nod in o['nods']:
-                        fig.show_polygons(nod['box'],edgecolor=o['color'],lw=1,
-                                          linestyle='dotted',alpha=0.7)
-                
-
-            #outfile = fdir/('Leg%02d.png'%tab['Leg'][0])
-            outfile = fdir/('Leg%02d.pdf'%tab['Leg'][0])
-            imagefiles.append(outfile.name)
-
-            fig.savefig(outfile,dpi=300)
-            fig.close()
-            bar.update()
-    '''
-
-    
+    # finally, render latex template
     render = {'flightName':name.replace('_','\_'),
               'title':title,
               'tables':zip(legnames,overviews,
@@ -1574,14 +1451,3 @@ def write_tex_dossier(tables, name,title,filename,
             f.write(pages)
 
     return filename
-
-    '''
-    exit()
-    with Browser('chrome',headless=True) as browser:
-        a = Aladin(refresh_cache=refresh_cache,browser=browser)
-        imgfiles = [a(overlay['center'],overlays=overlay,fov=0.25) if overlay else None for overlay in overlays]
-    print(imgfiles)
-    imgfiles = [add_text(imgfile,overlay) for imgfile,overlay in zip(imgfiles,overlays)]
-    
-    exit()
-    '''

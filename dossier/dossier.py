@@ -44,14 +44,14 @@ def get_raw_leg(leg,dcs,aordir,propdir=None,proposal=False,plankey='ObsPlanID'):
     if not planID:
         return None
 
-    #msg = '  Retrieving AOR %s for %s' % (leg['AOR'],leg['LegName'])
+    # get raw aor xml file
     odir = Path(aordir)
     cfile = dcs.getAORs(planID,raw=True)
     outfile = '%s.aor'%planID
     copy(cfile,odir/outfile)
 
     if proposal:
-        #msg = '\n  Retrieving proposal for AOR %s' % (leg['AOR'])
+        # download PDF file
         cfile = dcs.getProposal(planID)
         outfile = '%s.pdf'%planID
         if propdir:
@@ -121,12 +121,10 @@ def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID'):
         aor (list): AOR list of dicts.
     
     """
+
     if not leg[plankey]:
         return None
     
-    #print('  Retrieving AOR %s for %s' % (leg['AOR'],leg['LegName']))
-    #aor = dcs.getAORs(['07_0225','07_0225_8'],guide=True,pos=True,as_table=True)
-    #print(aor)
     aor = dcs.getAORs(leg[obsblkkey])
     if isinstance(aor,dict):
         aor = [aor]
@@ -137,10 +135,6 @@ def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID'):
 
         
     aor = [dict(leg,**a) if a else None for a in aor]
-
-    # Update meta data for easier retrieval of PI info later by LEG
-    #aor.meta['LEG%iPI'%leg['Leg']] = aor.meta['PI']
-    #print('    ObsBlk: %s'%leg['ObsBlk'])
 
     return aor
 
@@ -234,60 +228,12 @@ def generate_dossier(flightid, odir,
 
     legs = [leg for leg in legs if leg is not None]
 
-    # download POS file
-    '''
-    try:
-        pos = dcs.getPOS(flightid,guide=guide)
-        guide = pos.guide
-
-        # just keep target and AORID
-        pos = pos[['AORID','Target']]
-        pos.rename_column('Target','POSname')
-
-        mis = join(mis,pos,join_type='left',keys=['AORID'])
-    except IndexError:
-        # failed to read pos file
-        print('Skipping .pos for %s' % flightid)
-        mis.add_column(Column(mis['Target'],name='POSname'))
-        guide = None
-
-    exit()
-    mis = MIS.as_table(legs)
-    print(mis)
-    exit()
-
-    mis.sort(['Leg','AORID'])
-    #mis.pprint()
-
-    # group by legs
-    legs = mis.group_by('Leg')
-    for leg in legs:
-        leg.meta['Flight Plan ID'] = flightid
-
-    # obsblk comments
-    #legs.meta['ObsBlkComments'] = comments
-
-    '''
-
-    # tableify
-    '''
-    tables = list(map(MIS.as_table,legs))
-
-    if guide:
-        for table in tables:
-            aorids = list(table['aorID'])
-            guide = dcs.getPOS(aorids,guide=True,as_table=True)
-            table.guide = guide
-    '''
-    tables = legs
-
     # output tex file
     output = odir/('%s.tex'%flightid)
 
     print()
-    #print('Writing to %s...'%output)
     print('Generating %s...' % output)
-    TEX.write_tex_dossier(tables, name, title, output,
+    TEX.write_tex_dossier(legs, name, title, output,
                           template=template,
                           config=config,
                           mconfig=mconfig,
@@ -382,7 +328,6 @@ def _argparse():
     parser.add_argument('-t','--template',
                         dest='template',type=str,default=tex_DEFAULT,
                         help='Template file (default=dossier/template.tex)')
-
 
     return parser
     
@@ -489,10 +434,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-    #dcs = DCS.DCS()
-    
-
-    #_register_models(dcs)
-    #dcs._force_db_sync()
-    #generate_dossier('201909_HA_FEMKE',odir='test2',dcs=dcs,guide=True)

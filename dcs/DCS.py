@@ -39,7 +39,7 @@ HTMLPARSER = 'lxml'
 
 def _aorID_to_planID(aorID):
     if 'OB' in aorID:
-        return _ObsBlk_to_planID(aorID)
+        return _ObsBlkID_to_planID(aorID)
     split = aorID.split('_')
     if len(split) == 2:
         planID = aorID
@@ -47,8 +47,8 @@ def _aorID_to_planID(aorID):
         planID = '_'.join(split[:-1])
     return planID
 
-def _ObsBlk_to_planID(ObsBlk):
-    return '_'.join(ObsBlk.split('_')[1:-1])
+def _ObsBlkID_to_planID(ObsBlkID):
+    return '_'.join(ObsBlkID.split('_')[1:-1])
 
 def _is_aorID(idstr):
     if 'OB' in idstr:
@@ -69,7 +69,7 @@ def _is_planID(idstr):
         return True
     return False
 
-def _is_ObsBlk(idstr):
+def _is_ObsBlkID(idstr):
     if 'OB' in idstr and len(idstr.split('_')) == 4:
         return True
     return False
@@ -82,7 +82,8 @@ class DCS(object):
                  dcsurl=DCSURL,
                  cachedir=get_cache_dir(),
                  refresh_cache=False,
-                 modelcfg = 'dcs/DBmodels.cfg',
+                 #modelcfg = 'dcs/DBmodels.cfg',
+                 modelcfg = str(Path(__file__).parent.resolve()/'DBmodels.cfg'),
                  models = ('AOR','MIS','FAOR','POS','GUIDE','AORSEARCH')):
         
         self.browser = mechanicalsoup.StatefulBrowser()
@@ -128,7 +129,8 @@ class DCS(object):
             
     def _remove_db(self):
         db_file = self._get_db_file()
-        db_file.unlink(missing_ok=True)
+        #db_file.unlink(missing_ok=True)
+        db_file.unlink()
         return db_file
         
 
@@ -662,7 +664,7 @@ class DCS(object):
         '''
         aors = AOR.select().where((AOR.aorID.in_(search))  |
                                   (AOR.planID.in_(search)) |
-                                  (AOR.ObsBlk.in_(search))).order_by(AOR.ObsBlk,AOR.order,AOR.aorID)
+                                  (AOR.ObsBlkID.in_(search))).order_by(AOR.ObsBlkID,AOR.order,AOR.aorID)
         return self._proc_res(aors, AOR, *args, **kwargs)
 
     def _query_GUIDE_table(self, search, *args, **kwargs):
@@ -670,7 +672,7 @@ class DCS(object):
             search = [search]
         guides = GUIDE.select().where((GUIDE.aorID.in_(search)) |
                                       (GUIDE.planID.in_(search)) |
-                                      (GUIDE.ObsBlk.in_(search))).order_by(GUIDE.Radius)
+                                      (GUIDE.ObsBlkID.in_(search))).order_by(GUIDE.Radius)
         return self._proc_res(guides, GUIDE, *args, **kwargs)
 
 
@@ -681,7 +683,7 @@ class DCS(object):
         faors = FAOR.select().where(FAOR.AORID.in_(search))
         return self._proc_res(faors,FAOR, *args, **kwargs)
 
-    def _query_AOR_table_old(self,aorID=None,planID=None,ObsBlk=None,pos=False,guide=False):
+    def _query_AOR_table_old(self,aorID=None,planID=None,ObsBlkID=None,pos=False,guide=False):
         """Perform DB lookup on AOR table"""
         if aorID:
             if isinstance(aorID,str):
@@ -715,15 +717,15 @@ class DCS(object):
                 elif _is_planID(aorID):
                     return self._query_AOR_table(planID=aorID, guide=guide, pos=pos)
                 elif 'OB' in aorID:
-                    return self._query_AOR_table(ObsBlk=aorID, guide=guide, pos=pos)
+                    return self._query_AOR_table(ObsBlkID=aorID, guide=guide, pos=pos)
                 else:
                     return None
                     
             else:
-                # query multiple, and allow for planIDs, ObsBlks
+                # query multiple, and allow for planIDs, ObsBlkIDs
                 aors = AOR.select().where((AOR.aorID.in_(aorID))  |
                                           (AOR.planID.in_(aorID)) |
-                                          (AOR.ObsBlk.in_(aorID))).order_by(AOR.ObsBlk,AOR.order,AOR.aorID).dicts()
+                                          (AOR.ObsBlkID.in_(aorID))).order_by(AOR.ObsBlkID,AOR.order,AOR.aorID).dicts()
                 #aors = [aor.__data__ for aor in aors]
                 aors = list(aors)
                 aors = aors if aors else None
@@ -754,9 +756,9 @@ class DCS(object):
                 
         elif planID:
             if isinstance(planID,str):
-                aors = AOR.select().where(AOR.planID==planID).order_by(AOR.ObsBlk,AOR.order,AOR.aorID).dicts()
+                aors = AOR.select().where(AOR.planID==planID).order_by(AOR.ObsBlkID,AOR.order,AOR.aorID).dicts()
             else:
-                aors = AOR.select().where(AOR.planID.in_(planID)).order_by(AOR.ObsBlk,AOR.order,AOR.aorID).dicts()
+                aors = AOR.select().where(AOR.planID.in_(planID)).order_by(AOR.ObsBlkID,AOR.order,AOR.aorID).dicts()
             aors = list(aors)
             aors = aors if aors else None
 
@@ -785,17 +787,17 @@ class DCS(object):
                         if g:
                             aor['GUIDESTARS'] = g
             
-        elif ObsBlk:
-            if isinstance(ObsBlk,str):
-                aors = AOR.select().where(AOR.ObsBlk==ObsBlk).order_by(AOR.ObsBlk,AOR.order,AOR.aorID).dicts()
+        elif ObsBlkID:
+            if isinstance(ObsBlkID,str):
+                aors = AOR.select().where(AOR.ObsBlkID==ObsBlkID).order_by(AOR.ObsBlkID,AOR.order,AOR.aorID).dicts()
             else:
-                aors = AOR.select().where(AOR.ObsBlk.in_(ObsBlk)).order_by(AOR.ObsBlk,AOR.order,AOR.aorID).dicts()
+                aors = AOR.select().where(AOR.ObsBlkID.in_(ObsBlkID)).order_by(AOR.ObsBlkID,AOR.order,AOR.aorID).dicts()
             aors = list(aors)
             aors = aors if aors else None
             
             if pos:
                 # get POSname
-                prows = self.getPOS(ObsBlk)
+                prows = self.getPOS(ObsBlkID)
                 if prows:
                     prow = list(filter(lambda x:not x['isNod'],prows))
                     for aor in aors:
@@ -811,7 +813,7 @@ class DCS(object):
 
             if guide:
                 # attach guide stars to aors
-                grows = self.getPOS(ObsBlk,guide=guide)
+                grows = self.getPOS(ObsBlkID,guide=guide)
                 if grows:
                     for aor in aors:
                         g = list(filter(lambda x:x['AORID'] == aor['aorID'],grows))
@@ -836,8 +838,8 @@ class DCS(object):
             legs = list(legs)
             legs = legs if legs else None
                 
-        elif ObsBlk:
-            legs = MIS.select().where(MIS.ObsBlkID==ObsBlk).order_by(MIS.FlightPlan,MIS.Leg).dicts()
+        elif ObsBlkID:
+            legs = MIS.select().where(MIS.ObsBlkID==ObsBlkID).order_by(MIS.FlightPlan,MIS.Leg).dicts()
             #legs = [leg.__data__ for leg in legs]
             legs = list(legs)
             legs = legs if legs else None
@@ -949,7 +951,7 @@ class DCS(object):
                        sql=False,
                        utctab=False,
                        raw=False,
-                       ObsBlk=None,
+                       ObsBlkID=None,
                        as_table=False,
                        as_pandas=False,
                        as_json=False,
@@ -1001,7 +1003,7 @@ class DCS(object):
         if raw:
             return cfile
 
-        legs = self._query_MIS_table(search=flightid, ObsBlk=ObsBlk,
+        legs = self._query_MIS_table(search=flightid, ObsBlkID=ObsBlkID,
                                      sql=sql, raw=raw,
                                      as_table=as_table,as_json=as_json,as_pandas=as_pandas)
         return legs

@@ -19,6 +19,7 @@ from dcs import FAOR as dcsFAOR
 from datetime import datetime,timedelta,timezone
 from astropy.time import Time, TimeDelta
 import json
+import warnings
 
 # ROF rate
 ROF_RE = re.compile('\[([\+\-\d\.]*)\,\s?([\+\-\d\.]*)\]')
@@ -386,13 +387,13 @@ def plan_obsblock(obsblock,mistab,
     # get leg
     mistab = MIS.as_table(mistab)
     
-    leg = mistab[mistab['ObsBlk'] == obsblock]
+    leg = mistab[mistab['ObsBlkID'] == obsblock]
     if len(leg) > 1:
         leg = mistab[mistab['Leg'] == legno]
 
     if not leg:
         return None
-
+    
     # get leg duration
     dur = [float(x) for x in leg['ObsDur'][0].split(':')]
     dur = (dur[0]*u.hour+dur[1]*u.minute+dur[2]*u.second).to(u.minute)
@@ -405,16 +406,19 @@ def plan_obsblock(obsblock,mistab,
         rofrate = rofrate if hasattr(rofrate,'unit') else rofrate*u.deg/u.min
 
     # get AOR
-    aor = dcs.getAORs(leg['ObsBlk'])
+    aor = dcs.getAORs(leg['ObsBlkID'])
 
     if aor is None or len(aor) == 0:
         # weirdly, no AORIDs associated with obsblk
-        aor = d.getAOR(leg['planID'])
+        aor = dcs.getAORs(leg['planID'])
 
         # likely a calibrator, in which case flag as calibrator
         ###cal = True
         ### THIS IS UNSAFE.  WARN INSTEAD.
-        raise RuntimeWarning('ObsBlk %s is empty. Generating FAORs for every AORID in ObsPlan' % leg['ObsBlk'])
+        #raise RuntimeWarning('ObsBlk %s is empty. Generating FAORs for every AORID in ObsPlan' % leg['ObsBlkID'][0])
+        warnings.warn('ObsBlk %s is empty. Generating FAORs for every AORID in ObsPlan' % leg['ObsBlkID'][0],category=RuntimeWarning)
+        for r in aor:
+            r['ObsBlkID'] = leg['ObsBlkID'][0]
     #else:
     #    cal = False
     
@@ -422,7 +426,11 @@ def plan_obsblock(obsblock,mistab,
     print('-----')
     aor = AOR.as_table(aor)
     aor.pprint()
-    print()
+
+    aor['FlightName'] = [mistab['FlightName'][0]]*len(aor)
+    aor['FlightPlan'] = [mistab['FlightPlan'][0]]*len(aor)
+    aor['fkey'] = [mistab['fkey'][0]]*len(aor)
+    aor['Leg'] = [leg['Leg']] * len(aor)
     
     # requested duration
     req = aor['TotalTime']*u.s
@@ -522,12 +530,12 @@ def plan_obsblock(obsblock,mistab,
             nitrun = nitrun
         '''
 
-
+        '''
         flightid = mistab['FlightPlan'][0]
         # override values with config file if present
         # >>
         aorid = r['aorID']
-
+        
         planid = '_'.join(aorid.split('_')[0:2])
         aoridmod = r['aorID']#'%s_%i'%(planid,int(aorid.split('_')[-1])) # _1
         mission = '_'.join((flightid,aorid))
@@ -543,6 +551,10 @@ def plan_obsblock(obsblock,mistab,
 
         # chainmap checks each section for values, starting with aorid
         chmap = CMap(cfg,aorsec,**kwargs)
+        '''
+        print(r['ObsBlkID'])
+        chmap = CMap.from_AOR_dict(cfg,r)
+        
         
         noddwell = chmap.getquantity('noddwell',u.s,noddwell)
         repeats = chmap.getint('repeats',repeats)
@@ -773,7 +785,7 @@ def plan_obsblock(obsblock,mistab,
         comments[i] = ('%s\n%s\n' % (comment,det)).replace('\n','\n#   ')
 
     table.add_column(Column(comments,name='Comments'))
-    table.meta['Flight'] = mistab['FlightPlan'][0]
+    table.meta['FlightPlan'] = mistab['FlightPlan'][0]
     table.meta['Leg'] = int(leg['Leg'])
     table.meta['KEEPIN'] = list(keep)
 
@@ -816,9 +828,13 @@ def register_models(dcs):
     globals()['dcs'] = dcs
 
     return active_models
-    
 
-def main():
+def _argparse():
+    """Separate argparse callable for sphinx documentation"""
+
+    # get defaults
+    mcfg_DEFAULT = str(Path(DCS.__file__).parent.resolve()/'DBmodels.cfg')
+
     parser = argparse.ArgumentParser(description='Plan FORCAST observations, accounting for LOS rewind cadence.')
     parser.add_argument('flightid',type=str,help='Flight ID (e.g. 201902_FO_OTTO)')
     parser.add_argument('-niter',type=int,default=6,help='Number of iterations per AORID (default=6)')
@@ -843,7 +859,7 @@ def main():
                         help='Specify local directory for .mis files, else query DCS')
     parser.add_argument('-cfg',type=str,default=None,
                         help='Specify .cfg file for additional options')
-    parser.add_argument('-mcfg',type=str,default='dcs/DBmodels.cfg',help='Model config file (default=dcs/DBmodels.cfg)')
+    parser.add_argument('-mcfg',type=str,default=mcfg_DEFAULT,help='Model config file (default=dcs/DBmodels.cfg)')
     parser.add_argument('--comment-out','-co',
                         dest='comment',action='store_true',help='If specified, leave unplanned run blocks in FAORs rather than delete them')
     parser.add_argument('--fixed',
@@ -855,8 +871,11 @@ def main():
     parser.add_argument('-r','--refresh-cache',
                         dest='refresh_cache',action='store_true',
                         help='Force update from DCS')
+    return parser
 
-    args = parser.parse_args()
+def main():
+    """Main CLI entry-point."""
+    args = _argparse().parse_args()
 
     # initialize DCS link and database
     mcfg = ConfigParser()
@@ -976,7 +995,7 @@ def main():
         if args.interval:
             if args.leg is None:
                 raise RuntimeError('leg must be specified for interval leg splitting.')
-            utctabs = d.getFlightPlan(fid, local=args.local, utctab=True)
+            utctabs = dcs.getFlightPlan(fid, local=args.local, utctab=True)
             utctabs = list(filter(lambda x:'Leg' in x.meta, utctabs))
         '''
 
@@ -987,14 +1006,14 @@ def main():
                     continue
 
             # if no obsblk, skip
-            if not leg['ObsBlk']:
+            if not leg['ObsBlkID']:
                 continue
             
 
             # apply aliases, if any
-            if args.alias and leg['ObsBlk'] in args.alias:
-                orig = leg['ObsBlk']
-                leg['ObsBlk'] = args.alias[orig]
+            if args.alias and leg['ObsBlkID'] in args.alias:
+                orig = leg['ObsBlkID']
+                leg['ObsBlkID'] = args.alias[orig]
                 leg['AOR'] = '_'.join(args.alias[orig].split('_')[1:3])
 
             # cfg key for leg/mission
@@ -1034,7 +1053,7 @@ def main():
                 print('-----')
                 if all([not l for l in iTab['label']]):
                     iTab.remove_column('label')
-                iTab.add_column(Column([leg['ObsBlk']]*len(iTab),name='ObsBlk'),index=0)
+                iTab.add_column(Column([leg['ObsBlkID']]*len(iTab),name='ObsBlkID'),index=0)
                 dur = (((iTab['stop']-iTab['start']).sec)/60)*u.min
                 iTab.add_column(Column(dur,name='duration',format='%.1f'),index=3)
                 iTab.pprint()
@@ -1043,7 +1062,7 @@ def main():
                 continue
 
             # if rofdict in Plan ID cfg, override all values in plan_obsblock
-            planID = '_'.join(leg['ObsBlk'].split('_')[1:3])
+            planID = '_'.join(leg['ObsBlkID'].split('_')[1:3])
             if planID in cfg and 'rofdict' in cfg[planID]:
                 # proc rofdict
                 rofstr = cfg[planID]['rofdict']
@@ -1052,7 +1071,7 @@ def main():
 
             for row in iTab:
                 # generate paramtable for each interval (just one if interval == 0)
-                paramtable = plan_obsblock(leg['ObsBlk'],mis,
+                paramtable = plan_obsblock(leg['ObsBlkID'],mis,
                                            legno=leg['Leg'],
                                            niter=args.niter,
                                            multiprocess=args.debug,

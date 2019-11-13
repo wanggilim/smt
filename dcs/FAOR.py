@@ -13,7 +13,7 @@ from astropy.table import Table
 from functools import partial
 
 KEYS = ['config','run','NODDWELL','REPEATS','loop','endloop','STOP','rewind']
-CKEYS = ('Flight','Leg','Leg Dur','Obs Dur','Tot Dur','Start','ROF')
+CKEYS = ('FlightPlan','Leg','Leg Dur','Obs Dur','Tot Dur','Start','ROF')
 
 # setup logging
 log = logging.getLogger(__file__)
