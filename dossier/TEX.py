@@ -77,6 +77,7 @@ ROLL_RE = re.compile('\[([\d\.]*)\,\s?([\d\.]*)\]')
 #COLORS = ['#ff0000','#00ff00','#0000ff']
 COLORS = ['#d62728','#1f77b4','#2ca02c','#ff7f0e','#9467bd','#17becf','#e377c2']
 GCOLOR = '#FFD700'
+FCOLOR = '#9467bd'
 
 FOV = {'A_TOT':(2.8,1.7),'C_TOT':(4.2,2.7),'D_TOT':(7.4,4.6),'E_TOT':(10.0,6.3),
        'A_POL':(1.4,1.7),'C_POL':(2.1,2.7),'D_POL':(3.7,4.6),'E_POL':(5.0,6.3),
@@ -85,7 +86,7 @@ FOV = {'A_TOT':(2.8,1.7),'C_TOT':(4.2,2.7),'D_TOT':(7.4,4.6),'E_TOT':(10.0,6.3),
 PIXSIZE = {'A_TOT':2.34, 'C_TOT':4.02,'D_TOT':6.90,'E_TOT':8.62,'FORCAST_IMG':0.768,'FORCAST_GSM':0.768}
 
 
-IMGOPTIONS = {'width':0.3, 'height':0.3,
+IMGOPTIONS = {'width':0.4*u.deg, 'height':0.4*u.deg,
               'survey':'DSS2 Red',
               'vmin':None, 'vmax':None,
               'recenter':None,'roll':True,
@@ -95,6 +96,13 @@ IMGOPTIONS = {'width':0.3, 'height':0.3,
 TARFOFFSET = {'HAWC_PLUS':3*u.deg,
               'FORCAST':40.6*u.deg}
 
+INST_REPL = {'University':'Univ','Universitaet':'Univ',
+             'Department':'Dept','and':'\&','und':'\&',
+             'Institute':'Inst','Institut':'Inst',
+             'fuer ':'f. ','der ':'d. ',
+             'Astrophysics':'Ast.','Astrophysik':'Ast.',
+             'Dr. ':'','Mr. ':'','Prof ':'','Prof. ':'',
+             '. ':'.\ '}
 
 HAWC_SIO = {
     'Lissajous':r"""
@@ -325,7 +333,8 @@ def get_image(overlays,survey='DSS2 Red',width=0.2*u.deg,height=0.2*u.deg,
         center = overlays[0]['center']
 
     try:
-        im = SkyView.get_images(center,survey=survey,width=width,height=height,
+        im = SkyView.get_images(center,survey=survey,
+                                width=width,height=height,
                                 show_progress=DEBUG)
     except (SSLError,ChunkedEncodingError,ConnectionError):
         warnings.warn('Cannot query SkyView service. Skipping image.')
@@ -373,9 +382,11 @@ def get_image(overlays,survey='DSS2 Red',width=0.2*u.deg,height=0.2*u.deg,
             fpiradius = (4.5*u.arcmin).to(u.deg).value
             fig.show_circles(overlay['center'].ra.value,
                              overlay['center'].dec.value,
-                             fpiradius,edgecolor=overlay['color'],
+                             fpiradius,
+                             #edgecolor=FCOLOR,
+                             edgecolor=overlay['color'],
                              linestyle='dashed',lw=1,
-                             alpha=0.4)
+                             alpha=0.5)
             if 'nods' in overlay and len(overlay['nods']) > 2:
                 # c2nc2 mode
                 fig.show_circles(overlay['nods'][1]['center'].ra.value,
@@ -458,7 +469,8 @@ def get_image(overlays,survey='DSS2 Red',width=0.2*u.deg,height=0.2*u.deg,
                 hdu = fits.HDUList([hdu,irhdu[0]])
         else:
             try:
-                im = SkyView.get_images(center,survey=irsurvey,width=width,height=height,
+                im = SkyView.get_images(center,survey=irsurvey,
+                                        width=width,height=height,
                                         show_progress=DEBUG)
                 irhdu = im[0][0]
                 hdu = fits.HDUList([hdu,irhdu])
@@ -483,7 +495,10 @@ def make_overview(leg, tex=True):
 
     # make metadata
     if tex:
-        overview['header'] = '\\captionline{Leg %i (%s)}{%s}' % (l['Leg'],l['Name'],l['PI'])
+        overview['header'] = '\\captionline{Leg %i (%s)}{%s}' % (l['Leg'],l['Name'].replace('_','\_'),l['PI'])
+        # shorten header
+        for k,v in INST_REPL.items():
+            overview['header'] = overview['header'].replace(k,v)
     else:
         overview['header'] ={k:l.get(k,'') for k in hcols}
 
@@ -558,11 +573,14 @@ def generate_overview_tex(overview, metakeys=('header','footer')):
         overview['RA'][0] = ra
         overview['DEC'][0] = dec
 
-    # safe convert obsblkid
-    try:
-        overview['ObsBlkID'] = [blk.replace('_','\_') for blk in overview['ObsBlkID']]
-    except AttributeError:
-        overview['ObsBlkID'] == ''
+    # safe convert obsblkid,target
+    for col in ('ObsBlkID','Target'):
+        try:
+            overview[col] = [k.replace('_','\_') for k in overview[col]]
+        except AttributeError:
+            overview[col] == ''
+
+        
     
     # rename cols to have headercolor
     for col in overview.colnames:
@@ -1132,10 +1150,18 @@ def get_recenter_image(overlaylist):
 
     return recenter
 
-def make_figures(table,fdir,reg=False,guidestars=None,irsurvey=None,savefits=False,**kwargs):
+def make_figures(table,fdir,reg=False,guidestars=None,irsurvey=None,savefits=False,fpi=False,**kwargs):
     '''Generate figure from each overlay'''
 
-    overlays = [row['overlay'] for row in table if row.get('overlay')]
+    # make defaults from table
+    vrows = list(filter(lambda row:row.get('overlay'),table))
+    overlays = [{k:row.get(k,v) for k,v in IMGOPTIONS.items()} for row in vrows]
+
+    for o,row in zip(overlays,vrows):
+        if row.get('overlay'):
+            o.update(row['overlay'])
+    #overlays = [row['overlay'] for row in table if row.get('overlay')]
+    
     # remove any with 'nofigure' flag
     overlays = list(filter(lambda o:not o.get('nofigure',False),overlays))
     if not overlays:
@@ -1145,6 +1171,14 @@ def make_figures(table,fdir,reg=False,guidestars=None,irsurvey=None,savefits=Fal
     options = overlays[0].copy()
     if irsurvey is not None:
         options['irsurvey'] = irsurvey
+
+    if fpi:
+        options['fpi'] = fpi
+
+    if 'width' in options and isinstance(options['width'],str):
+        options['width'] = u.Quantity(float(options['width']),u.deg)
+    if 'height' in options and isinstance(options['height'],str):
+        options['height'] = u.Quantity(float(options['height']),u.deg)
 
     try:
         fig,hdu = get_image(overlays,**options)
@@ -1357,6 +1391,7 @@ def write_tex_dossier(tables, name,title,filename,
                       reg=False,
                       dcs=None,local=None,
                       sio=False,
+                      fpi=False,
                       savefits=False,
                       irsurvey=None,
                       tex=True,
@@ -1427,7 +1462,7 @@ def write_tex_dossier(tables, name,title,filename,
 
     # define partial function for multiprocessing
     figfunc = partial(make_figures,fdir=fdir,reg=reg,guidestars=guidestars,
-                      irsurvey=irsurvey,savefits=savefits)
+                      irsurvey=irsurvey,savefits=savefits,fpi=fpi)
     print('Generating figures...')
     imagefiles = ProgressBar.map(figfunc,tables,multiprocess=MP)
 

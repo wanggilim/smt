@@ -179,7 +179,7 @@ class DCS(object):
     def _initialize_database(self, models=('AOR','MIS','FAOR','POS','GUIDE','AORSEARCH')):
         """Initialize database, create models dynamically, and register models globally"""
         db_file = self._get_db_file()
-        db = SqliteDatabase(db_file)
+        db = SqliteDatabase(str(db_file))
 
         # generate models
         mods = [DBmodels.ModelFactory(name, self.mcfg, db) for name in models]
@@ -629,7 +629,7 @@ class DCS(object):
         return self._get(search, 'MIS', *args, **kwargs)
 
     def getFlightSeries(self, series, get_ids=False, as_json=True, local=None):
-        flightids = self._getFlightIDs_in_Series(series)
+        flightids = self._getFlightIDs_in_Series(series,local=local)
         if get_ids:
             return flightids
 
@@ -928,7 +928,7 @@ class DCS(object):
                                 local=None):
         '''Get names of flight in series'''
         if local:
-            local = Path(local).glob('*.mis')
+            local = Path(local).glob('**/*.misxml')
             flightids = [f.stem.replace('_INIT','') for f in local]
             return flightids
         
@@ -958,18 +958,21 @@ class DCS(object):
                        insert=True):
         '''Download mis file'''
         if local:
-            # BROKEN---STILL REQUIRES .MIS FILES
             try:
-                cfile = list(Path(local).glob('%s*.mis'%flightid))[0]
+                #cfile = list(Path(local).glob('%s*.mis'%flightid))[0]
+                cfile = list(Path(local).glob('**/%s*.misxml'%flightid))[0]
             except IndexError:
                 cfile = Path(local)
             if raw:
                 return local
             if utctab:
                 _,tab = dcsMIS.get_legs(cfile)
+                return tab
             else:
-                tab = Table.read(cfile,format='mis-tab')
-            return tab
+                #tab = Table.read(cfile,format='mis-tab')
+                #return tab
+                pass
+                
 
         else:
             if utctab:
@@ -977,7 +980,7 @@ class DCS(object):
             else:
                 query = (self.dcsurl/rel).with_query({'fpid':flightid,'fileType':'misxml'})
             cfile = self._queryDCS(query, form)
-        
+
         with open(cfile,'r') as f:
             text = f.read()
             if 'No Matching MIS found' in text:
