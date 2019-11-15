@@ -151,6 +151,7 @@ def generate_dossier(flightid, odir,
                      posfiles=False,
                      reg=False,
                      sio=False,
+                     fpi=False,
                      savefits=False,
                      irsurvey=None,
                      writetex=True,
@@ -173,6 +174,7 @@ def generate_dossier(flightid, odir,
         faor (bool): If True, process FORCAST configurations from .faor files.  These files must have been generated from companion 'planner.py' script and must exist in an 'faors/' folder within the output directory structure.
         posfiles (bool): If True, pull down .pos files from DCS.
         reg (bool): If True, generate DS9 region files of overlays.
+        fpi (bool): If True, add FPI overlay to figures.
         sio (bool): If True, overwrite ObsBlk comments with SIO instructions (HAWC+ only).
         savefits (bool): If True, copy SkyView .fits files to local directory structure.
         irsurvey (str): Survey in SkyView imaging catalogs to download additional .fits images. This can be any imaging archive known to SkyView.  Requires savefits=True.
@@ -244,6 +246,7 @@ def generate_dossier(flightid, odir,
                           local=local,
                           reg=reg,
                           sio=sio,
+                          fpi=fpi,
                           savefits=savefits,
                           irsurvey=irsurvey,
                           writetex=writetex)
@@ -294,6 +297,9 @@ def _argparse():
     parser.add_argument('--faor',action='store_true',help='Populate values from FAORs (FORCAST only)')
     parser.add_argument('--pos',dest='posfiles',action='store_true',help='Download .pos files')
     #parser.add_argument('--guide',action='store_true',help='Highlight guide stars in images.')
+    parser.add_argument('-fpi','--show-fpi',
+                        dest='fpi',action='store_true',
+                        help='Show FPI overlay')
     parser.add_argument('-sio','--ioinstructions',
                         dest='sio',action='store_true',
                         help='Override ObsBlk comments with instrument operator instructions (HAWC+ only)')
@@ -365,7 +371,7 @@ def main():
     elif len(split) == 2:
         # series, get flightids from dcs
         flightids = dcs.getFlightSeries(args.flightid, get_ids=True, local=args.local)
-        names = [f.split('_') for f in flightids]
+        names = (f.split('_') for f in flightids)
         names = ['_'.join(name[-2:]) if 'ALT' in name else name[-1] for name in names]
         series = args.flightid
     else:
@@ -393,7 +399,7 @@ def main():
     # process each flightid
     outfiles = deque()
     for fid,odir in zip(flightids,odirs):
-        dcs.getFlightPlan(fid)
+        dcs.getFlightPlan(fid, local=args.local)
 
         if args.save or args.sexit:
             get_raw_AORs(fid,odir/'aor',
@@ -415,6 +421,7 @@ def main():
                                   posfiles=args.posfiles,
                                   reg=args.reg,
                                   sio=args.sio,
+                                  fpi=args.fpi,
                                   irsurvey=args.irsurvey,
                                   savefits=args.savefits,
                                   writetex=args.writetex)

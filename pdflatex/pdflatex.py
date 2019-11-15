@@ -3,6 +3,7 @@ import shutil
 import tempfile
 import subprocess
 from subprocess import PIPE
+from pathlib import Path
 
 MODE_BATCH = 0
 MODE_NON_STOP = 1
@@ -56,8 +57,7 @@ class PDFLaTeX:
                                  "'jobname' must be provided")
         return cls(tex_src, fn)
 
-    def create_pdf(self, keep_pdf_file: bool = False, keep_log_file: bool = False, env: dict = None,
-                   cwd: str = None):
+    def create_pdf(self, keep_pdf_file: bool = False, keep_log_file: bool = False, env: dict = None, cwd: str = None, deps: str = 'figs/'):
         if self.interaction_mode is not None:
             self.add_args({'-interaction-mode': self.interaction_mode})
         
@@ -74,15 +74,26 @@ class PDFLaTeX:
             self.set_jobname('file')
     
             args = self.get_run_args()
+            # copy all files from cwd into td
+            #if cwd:
+            #    fdir = Path(cwd).glob(deps)
+            #    for f in fdir:
+            #        shutil.copytree(f,Path(td)/f)
+            
             fp = subprocess.run(args, input=self.latex, env=env, timeout=15, stdout=PIPE, stderr=PIPE, cwd=cwd)
-            with open(os.path.join(td, 'file.pdf'), 'rb') as f:
-                self.pdf = f.read()
-            with open(os.path.join(td, 'file.log'), 'rb') as f:
-                self.log = f.read()
-            if keep_log_file:
-                shutil.move(os.path.join(td, 'file.log'), os.path.join(dir, filename + '.log'))
-            if keep_pdf_file:
-                shutil.move(os.path.join(td, 'file.pdf'), os.path.join(dir, filename + '.pdf'))
+            try:
+                with open(os.path.join(td, 'file.pdf'), 'rb') as f:
+                    self.pdf = f.read()
+                with open(os.path.join(td, 'file.log'), 'rb') as f:
+                    self.log = f.read()
+                if keep_log_file:
+                    shutil.move(os.path.join(td, 'file.log'), os.path.join(dir, filename + '.log'))
+                if keep_pdf_file:
+                    shutil.move(os.path.join(td, 'file.pdf'), os.path.join(dir, filename + '.pdf'))
+            except FileNotFoundError:
+                print()
+                print('Error in compilation!  Check .tex file.')
+                return None, None, None
         
         return self.pdf, self.log, fp
 
