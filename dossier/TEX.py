@@ -676,13 +676,16 @@ def make_details(tab, tex=True, faor=False):
             dithscale = (t.get('DitherScale') for t in tab)
             dithunit = (unit_map.get(t.get('DitherCoord')) for t in tab)
             dithband = (t['InstrumentSpectralElement1'][-1] for t in tab)
-            footer = ['\t%s: %i %s' % (band,scale,unit) for band,scale,unit \
+            dithscale = (str(int(scale)).rjust(2).replace(' ','~') if scale else '' for scale in dithscale)
+            footer = ['\t%s: %s %s' % (band,scale,unit) for band,scale,unit \
                       in zip(dithband,dithscale,dithunit) if scale]
-            footer = set(footer)
+            #footer = set(footer)  # REMOVES ORDER
+            footer = list(dict.fromkeys(footer).keys())  # basically a set operation that preserves order
             if len(footer) == 1:
                 footer = footer.pop()
             else:
-                footer = '\\\\\n'.join(sorted(footer))
+                #footer = '\\\\\n'.join(sorted(footer))
+                footer = '\\\\\n'.join(footer)
             footer = 'dither\quad\quad %s\\\\'%footer
             detail.meta['footer'] = footer
 

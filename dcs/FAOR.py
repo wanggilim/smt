@@ -2,7 +2,7 @@
 import argparse
 import xml.etree.ElementTree as ET
 from copy import deepcopy
-from collections import OrderedDict, deque
+from collections import OrderedDict, deque, defaultdict
 from pathlib import Path
 import logging
 from itertools import takewhile,dropwhile
@@ -10,7 +10,11 @@ import sys
 import numpy as np
 import astropy.units as u
 from astropy.table import Table
+from astropy.utils.console import ProgressBar
 from functools import partial
+from bs4 import BeautifulSoup
+
+XMLPARSER = 'lxml-xml'
 
 KEYS = ['config','run','NODDWELL','REPEATS','loop','endloop','STOP','rewind']
 CKEYS = ('FlightPlan','Leg','Leg Dur','Obs Dur','Tot Dur','Start','ROF')
@@ -470,6 +474,23 @@ class FAOR(object):
             f.write('EOF\n')
 
 
+def get_keydict(root,keys,exclude=None,as_tag=False):
+    if exclude:
+        if isinstance(exclude,str):
+            exclude = (exclude,)
+        keys = list(filter(lambda x:x not in exclude, keys))
+    
+    try:
+        if as_tag:
+            return {key:getattr(root,key) for key in keys}
+        else:
+            return {key:getattr(root,key).text for key in keys}
+    except AttributeError:
+        vals = (root.find(key) for key in keys)
+        if not as_tag:
+            vals = (val.text if val else None for val in vals)
+        return {key:val for key,val in zip(keys,vals)}
+    
 
 # FORCAST faor <- USPOT mapping for Instrument Block
 Imap = [  
@@ -510,6 +531,156 @@ Tmap = [
     ['IRUNIT', 'IRFluxUnit'],  
     ['IRWAVE', 'IRWavelength']]
 
+#KEYS_LIST = [x for x in zip(*(Tmap+Imap))]
+TMAP = dict([t[::-1] for t in Tmap])
+IMAP = dict([i[::-1] for i in Imap])
+KEYS_MAP = TMAP.copy()
+KEYS_MAP.update(IMAP)
+
+
+def fix_dither(request):
+    instrument = request.instrument
+    data = instrument.data
+
+
+    # rename dither keywords            
+    dithcoord = data.find('DitherCoordinate')
+    if dithcoord and dithcoord.string == 'Array':
+        for dRA, dDec in zip(instrument.find_all('deltaRaV'),instrument.find_all('deltaDecW')):
+            foo = float(dRA.string)/0.77
+            dRA.string = str('%.1f' % foo)  #float(dRA.text)/0.76)
+            foo = float(dDec.string)/0.77
+            dDec.string = str('%.1f' % foo)  #float(dDec.text)/0.76)
+
+    # if DITHER exists AND there are no ditherOffsets -> DITHER = '0'
+    if data.find('DitherPattern') is not None and \
+       instrument.find('ditherOffsets') is None:
+        data.find('DitherPattern').string = '0'
+        data.find('DitherPattern').name = 'DITHER'
+    # otherwise, DITHER equals the number of ditherOffsets found.
+    # rename DitherOffset as DITHERN (matches number of dither points)
+    else:
+        if data.find('DitherPattern') is None:
+            dither = BeautifulSoup('<DitherPattern></DitherPattern>',XMLPARSER)
+            data.append(dither)
+        dpoints = instrument.find('ditherOffsets')
+        if dpoints is None:
+            data.find('DitherPattern').string = '0'
+            data.find('DitherPattern').name = 'DITHER'
+        else:
+            dpoints = dpoints.find_all('DitherOffset')
+            data.find('DitherPattern').string = str(len(dpoints))
+            data.find('DitherPattern').name = 'DITHER'
+            for idx,tag in enumerate(dpoints):
+                tag.name = 'DITHER'+str(idx+1)
+
+    return request
+
+def get_target_data(request):
+
+    request = fix_dither(request)
+
+    instrument = request.instrument
+    data = instrument.data
+    cfg = {v:data.find(k) for k,v in IMAP.items()}
+    cfg = {k:v.string if v else None for k,v in cfg.items()}
+
+    cfg['DITHER'] = data.find('DITHER').string
+
+    # get and reorder dithers
+    if cfg['DITHER'] not in ('0','',0,None):
+        dkeys = ['DITHER%i'%(i+1) for i in range(int(cfg['DITHER']))]
+        for k in dkeys:
+            off = instrument.ditherOffsets.find(k)
+            dRA = off.find('deltaRaV').string
+            dDEC = off.find('deltaDecW').string
+            cfg[k] = dRA.ljust(8) + dDEC
+        lkeys = list(cfg.keys())
+        lk1,lk2 = lkeys[0:lkeys.index('DITHCOORD')+1],lkeys[lkeys.index('DITHCOORD'):-1]
+        lkeys = lk1+dkeys+lk2
+        cfg = {k:cfg[k] for k in lkeys}
+
+        
+    # OPEN (or Slit) value for SWC, LWC, SLIT translates to
+    # NONE value for SWC, LWC, SLIT
+    if cfg['SWC'] == 'OPEN':
+        cfg['SWC'] = 'NONE'
+    if cfg['LWC'] == 'OPEN':
+        cfg['LWC'] = 'NONE'
+    if cfg['SLIT'] in ('OPEN','Slit'):
+        cfg['SLIT'] = 'NONE'
+
+    # INSTMODE value of IMG_DUAL, IMG_SWC, IMG_LWC  translates to
+    # IMAGING_SWC, IMAGING_LWC, IMAGING_DUAL, GRISM_SWC, GRISM_LWC,
+    # GRISM_DUAL, GRISM_XD
+    instmode = cfg['INSTMODE']
+    if instmode == 'IMG_DUAL':
+        cfg['INSTMODE'] = 'IMAGING_DUAL'
+    if instmode == 'IMG_SWC':
+        cfg['INSTMODE'] = 'IMAGING_SWC'
+    if instmode == 'IMG_LWC':
+        cfg['INSTMODE'] = 'IMAGING_LWC'
+    if instmode == 'InstrumentConfiguration':     # GRISM LS
+        if cfg['SWC'] == 'NONE':
+            cfg['INSTMODE'] = 'GRISM_LWC'
+        elif cfg['LWC'] == 'NONE':
+            cfg['INSTMODE'] = 'GRISM_SWC'
+        else:
+            cfg['INSTMODE'] = 'GRISM_DUAL'
+        if cfg['SWC'] == 'FOR_XG063':
+            cfg['INSTMODE'] = 'GRISM_XD'
+        if cfg['SWC'] == 'FOR_XG111':
+            cfg['INSTMODE'] = 'GRISM_XD'
+
+    # some STYLE values need to be translated
+    if cfg['STYLE'] == 'NPC_CHOP_ALONG_SLIT':
+        cfg['STYLE'] = 'Nod_Perp_Chop_CAS'
+    if cfg['STYLE'] == 'NPC_NOD_ALONG_SLIT':
+        cfg['STYLE'] = 'Nod_Perp_Chop_NAS'
+
+    # BORESITE value determination:
+    # SLIT = NONE -> BORESITE = IMAGE
+    # SLIT = FOR_LS* -> BORESITE = LSLIT
+    # SLIT = FOR_SS24 -> BORESITE = SSLIT
+    if cfg['SLIT'] == 'NONE':
+        cfg['BORESITE'] = 'IMAGE'
+    elif cfg['SLIT'] == 'FOR_SS24':
+        cfg['BORESITE'] = 'SSLIT'
+    else:
+        cfg['BORESITE'] = 'LSLIT'
+
+    # IRSCRTYPE value determination (available in SSpot v2.4.1 and up)
+    # only IMAGING_* have no IRSourceType defined in SSpot, so set value
+    # to 'Unknown'
+    if cfg['IRSRCTYPE'] in(None,'IRSourceType'):
+        cfg['IRSRCTYPE'] = 'Unknown'
+
+    # Acquisition AORs: Cycles is always 1, DITHCOORD is always Array,
+    # BORESITE is always LSLIT
+    if data.ObsPlanConfig.string == 'ACQUISITION':
+        cfg['CYCLES'] = '1'
+        cfg['DITHCOORD'] = 'Array'
+        cfg['BORESITE'] = 'LSLIT'
+
+    # add TYPE key for post-processing FAOR
+    cfg['TYPE'] = data.ObsPlanConfig.string
+
+    target = get_keydict(request.target, keys=TMAP.keys())
+    target = {v:target[k] for k,v in TMAP.items()}
+    extra_data = get_keydict(data, keys=TMAP.keys())
+    extra_data = {v:extra_data[k] for k,v in TMAP.items()}
+
+    if request.target['class'] in ('TargetMovingSingle','SofiaTargetMovingSingle'):
+        target['RA'] = '0.0'
+        target['DEC'] = '0.0'
+        target['PMRA'] = 'UNKNOWN'
+        target['PMDEC'] = 'UNKNOWN'
+        target['COORDSYS'] = 'J2000'
+        target['EPOCH'] = '2000.0'
+    # combine extra_data with target only if target info is None
+    target.update({k:v for k,v in extra_data.items() if target[k] is None})
+    
+    return target, cfg
 
 def replace_badchar(string):
     """ replace some reserved characters with '_' 
@@ -521,7 +692,8 @@ def replace_badchar(string):
     string = string.replace(' ', '_')
     return string
 
-def FO_rename_tags(vector):
+
+def FO_rename_tags(requests):
     """ rename USPOT tags to FORCAST-required tag (parameter) names
         do not ADD or REMOVE any tag/parameter pairs here - that is done in
         cleanAOR
@@ -529,184 +701,164 @@ def FO_rename_tags(vector):
         Output: XML
     """
     # create list oldkey (USPOT tags) and newkey (FORCAST tags)
-    newkey,oldkey = [list(x) for x in zip(*(Tmap+Imap))]
+    #newkey,oldkey = [list(x) for x in zip(*(Tmap+Imap))]
+    #newkey,oldkey = KEYS_LIST
 
     # rename oldkey to newkey
-    for idx, tag in enumerate(oldkey):
-        for element in vector.iter(tag):
-            element.tag = newkey[idx]
-
-    requests = vector.findall('Request')
-
-    for item in requests:
-        # If the DITHCOORD keyowrd is Array, then the DITHERN RA and DEC
+    #for idx, tag in enumerate(oldkey):
+    #    for element in vector.iter(tag):
+    #        element.tag = newkey[idx]
+    for r in requests:
+        for k,v in KEYS_MAP.items():
+            try:
+                r.instrument.data.find(k).name = v
+            except AttributeError:
+                continue
+    
+    for r in requests:
+        # If the DITHCOORD keyword is Array, then the DITHERN RA and DEC
         # (deltaRaV and deltaDecW) values are divided by 0.77
-        if item.findtext('instrument/data/DITHCOORD') == 'Array':
-            for dRA, dDec in zip(item.iter('deltaRaV'), item.iter('deltaDecW')):
-                foo = float(dRA.text)/0.77
-                dRA.text = str('%.1f' % foo)  #float(dRA.text)/0.76)
-                foo = float(dDec.text)/0.77
-                dDec.text = str('%.1f' % foo)  #float(dDec.text)/0.76)
+        #if r.instrument.findtext('instrument/data/DITHCOORD') == 'Array':
+        instrument = r.instrument
+        data = instrument.data
+        dithcoord = data.find('DITHCOORD')
+        if dithcoord and dithcoord.string == 'Array':
+            for dRA, dDec in zip(instrument.find_all('deltaRaV'),instrument.find_all('deltaDecW')):
+                foo = float(dRA.string)/0.77
+                dRA.string = str('%.1f' % foo)  #float(dRA.text)/0.76)
+                foo = float(dDec.string)/0.77
+                dDec.string = str('%.1f' % foo)  #float(dDec.text)/0.76)
 
         # if DITHER exists AND there are no ditherOffsets -> DITHER = '0'
-        if item.find('instrument/data/DITHER') is not None and \
-        item.find('instrument/ditherOffsets') is None:
-            item.find('instrument/data/DITHER').text = '0'
+        if data.find('DITHER') is not None and \
+           instrument.find('ditherOffsets') is None:
+            data.find('DITHER').string = '0'
         # otherwise, DITHER equals the number of ditherOffsets found.
         # rename DitherOffset as DITHERN (matches number of dither points)
         else:
-            for dpoints in item.iter('ditherOffsets'):
-                item.find('instrument/data/DITHER').text = str(len(dpoints))
-                for i in range(len(dpoints)):
-                    dpoints.find('DitherOffset').tag = 'DITHER'+str(i+1)
+            if data.find('DITHER') is None:
+                dither = BeautifulSoup('<DITHER></DITHER>',XMLPARSER)
+                data.append(dither)
+            dpoints = instrument.find('ditherOffsets')
+            if dpoints is None:
+                data.find('DITHER').string = '0'
+            else:
+                dpoints = dpoints.find_all('DitherOffset')
+                data.find('DITHER').string = str(len(dpoints))
+                for idx,tag in enumerate(dpoints):
+                    tag.name = 'DITHER'+str(idx+1)
 
-    return vector
+    return requests
 
 
-def FO_clean_aor(vector):
-    """ remove unwanted info extracted from SSpot *.aor file;
+def FO_clean_aor(requests):
+    """ remove unwanted info extracted from USpot *.aor file;
         reorder tag-value pairs to match FORCAST faor
 
         input: xml element containing AORs only (no Proposal info, target list)
         output: array [[tag1,val1], ... , [tagM,valM]] needed for FORCAST FAOR
     """
 
-    Target = {}    # dictionary
-    Instrument = {}
-    for idx,m in enumerate(vector):  # create dictionary with length
-        Instrument[idx] = {}              # equal to number of AORs
+    instr_func = partial(get_keydict,keys=IMAP.values())
+    instr = list(map(instr_func,requests))
 
-    # Populate Inst Block w/ values from AORs (add DITHERN if DITHER > 0)
-    newkey,oldkey = [list(x) for x in zip(*Imap)]
+    # add dithers
+    for idx,tup in enumerate(zip(instr,requests)):
+        d,r = tup
+        if d['DITHER'] not in ('0','',0,None):
+            dkeys = ['DITHER%i'%(i+1) for i in range(int(d['DITHER']))]
+            for k in dkeys:
+                off = r.instrument.ditherOffsets.find(k)
+                dRA = off.find('deltaRaV').string
+                dDEC = off.find('deltaDecW').string
+                d[k] = dRA.ljust(8) + dDEC
+            lkeys = list(d.keys())
+            lk1,lk2 = lkeys[0:lkeys.index('DITHCOORD')+1],lkeys[lkeys.index('DITHCOORD'):-1]
+            lkeys = lk1+dkeys+lk2
+            instr[idx] = {k:d[k] for k in lkeys}
 
-    for inst in Instrument:    # fill dictionary w/ dummy values
-        for n, o in zip(newkey, oldkey):
-            Instrument[inst][n] = o
-
-    # replace dummy w/ real values, add DITHERN RA DEC
-    requests = vector.findall('Request')
-    for (iter, item) in enumerate(requests):     # loop over AORs
-        for n in newkey:
-            if item.find('instrument/data/' + n) is not None:
-                #print item.find('instrument/data/'+n).text
-                # replace dummy w/ real value
-                Instrument[iter][n] = item.find('instrument/data/' + n).text
-        # some Instruments lack DitherPattern tag in the AOR
-        if item.find('.//DITHER') is None:
-            Instrument[iter]['DITHER'] = '0'
-        # for non-zero DITHER
-        elif int(item.find('instrument/data/DITHER').text) > 0:
-            for i in range(int(item.find('instrument/data/DITHER').text)):
-                dRA = item.find('instrument/ditherOffsets/DITHER' +
-                      str(i+1) + '/deltaRaV').text
-                dDEC = item.find('instrument/ditherOffsets/DITHER' +
-                      str(i+1) + '/deltaDecW').text
-                Instrument[iter]['DITHER' + str(i+1)] = dRA.ljust(8) + dDEC
-
+        d = instr[idx]
         # OPEN (or Slit) value for SWC, LWC, SLIT translates to
         # NONE value for SWC, LWC, SLIT
-        if Instrument[iter]['SWC'] == 'OPEN':
-            Instrument[iter]['SWC'] = 'NONE'
-        if Instrument[iter]['LWC'] == 'OPEN':
-            Instrument[iter]['LWC'] = 'NONE'
-        if (Instrument[iter]['SLIT'] == 'OPEN' or
-                Instrument[iter]['SLIT'] == 'Slit'):
-            Instrument[iter]['SLIT'] = 'NONE'
+        if d['SWC'] == 'OPEN':
+            d['SWC'] = 'NONE'
+        if d['LWC'] == 'OPEN':
+            d['LWC'] = 'NONE'
+        if d['SLIT'] in ('OPEN','Slit'):
+            d['SLIT'] = 'NONE'
 
         # INSTMODE value of IMG_DUAL, IMG_SWC, IMG_LWC  translates to
         # IMAGING_SWC, IMAGING_LWC, IMAGING_DUAL, GRISM_SWC, GRISM_LWC,
         # GRISM_DUAL, GRISM_XD
-        instmode = Instrument[iter]['INSTMODE']
+        instmode = d['INSTMODE']
         if instmode == 'IMG_DUAL':
-            Instrument[iter]['INSTMODE'] = 'IMAGING_DUAL'
+            d['INSTMODE'] = 'IMAGING_DUAL'
         if instmode == 'IMG_SWC':
-            Instrument[iter]['INSTMODE'] = 'IMAGING_SWC'
+            d['INSTMODE'] = 'IMAGING_SWC'
         if instmode == 'IMG_LWC':
-            Instrument[iter]['INSTMODE'] = 'IMAGING_LWC'
+            d['INSTMODE'] = 'IMAGING_LWC'
         if instmode == 'InstrumentConfiguration':     # GRISM LS
-            if Instrument[iter]['SWC'] == 'NONE':
-                Instrument[iter]['INSTMODE'] = 'GRISM_LWC'
-            elif Instrument[iter]['LWC'] == 'NONE':
-                Instrument[iter]['INSTMODE'] = 'GRISM_SWC'
+            if d['SWC'] == 'NONE':
+                d['INSTMODE'] = 'GRISM_LWC'
+            elif d['LWC'] == 'NONE':
+                d['INSTMODE'] = 'GRISM_SWC'
             else:
-                Instrument[iter]['INSTMODE'] = 'GRISM_DUAL'
-            if Instrument[iter]['SWC'] == 'FOR_XG063':
-                Instrument[iter]['INSTMODE'] = 'GRISM_XD'
-            if Instrument[iter]['SWC'] == 'FOR_XG111':
-                Instrument[iter]['INSTMODE'] = 'GRISM_XD'
+                d['INSTMODE'] = 'GRISM_DUAL'
+            if d['SWC'] == 'FOR_XG063':
+                d['INSTMODE'] = 'GRISM_XD'
+            if d['SWC'] == 'FOR_XG111':
+                d['INSTMODE'] = 'GRISM_XD'
 
         # some STYLE values need to be translated
-        if Instrument[iter]['STYLE'] == 'NPC_CHOP_ALONG_SLIT':
-            Instrument[iter]['STYLE'] = 'Nod_Perp_Chop_CAS'
-        if Instrument[iter]['STYLE'] == 'NPC_NOD_ALONG_SLIT':
-            Instrument[iter]['STYLE'] = 'Nod_Perp_Chop_NAS'
+        if d['STYLE'] == 'NPC_CHOP_ALONG_SLIT':
+            d['STYLE'] = 'Nod_Perp_Chop_CAS'
+        if d['STYLE'] == 'NPC_NOD_ALONG_SLIT':
+            d['STYLE'] = 'Nod_Perp_Chop_NAS'
 
         # BORESITE value determination:
         # SLIT = NONE -> BORESITE = IMAGE
         # SLIT = FOR_LS* -> BORESITE = LSLIT
         # SLIT = FOR_SS24 -> BORESITE = SSLIT
-        if Instrument[iter]['SLIT'] == 'NONE':
-            Instrument[iter]['BORESITE'] = 'IMAGE'
-        elif Instrument[iter]['SLIT'] == 'FOR_SS24':
-            Instrument[iter]['BORESITE'] = 'SSLIT'
+        if d['SLIT'] == 'NONE':
+            d['BORESITE'] = 'IMAGE'
+        elif d['SLIT'] == 'FOR_SS24':
+            d['BORESITE'] = 'SSLIT'
         else:
-            Instrument[iter]['BORESITE'] = 'LSLIT'
+            d['BORESITE'] = 'LSLIT'
 
         # IRSCRTYPE value determination (available in SSpot v2.4.1 and up)
         # only IMAGING_* have no IRSourceType defined in SSpot, so set value
         # to 'Unknown'
-        if Instrument[iter]['IRSRCTYPE'] == 'IRSourceType':
-            Instrument[iter]['IRSRCTYPE'] = 'Unknown'
+        if d['IRSRCTYPE'] in ('IRSourceType',None):
+            d['IRSRCTYPE'] = 'Unknown'
 
         # Acquisition AORs: Cycles is always 1, DITHCOORD is always Array,
         # BORESITE is always LSLIT
-        if item.find('instrument/data/ObsPlanConfig').text == 'ACQUISITION':
-            Instrument[iter]['CYCLES'] = '1'
-            Instrument[iter]['DITHCOORD'] = 'Array'
-            Instrument[iter]['BORESITE'] = 'LSLIT'
+        if r.instrument.data.ObsPlanConfig.string == 'ACQUISITION':
+            d['CYCLES'] = '1'
+            d['DITHCOORD'] = 'Array'
+            d['BORESITE'] = 'LSLIT'
 
     # Populate Target Block w/ values from AORs
-    newkey,oldkey = [list(x) for x in zip(*Tmap)]
+    target_func = partial(get_keydict,keys=TMAP.keys())
+    extra_func = partial(get_keydict,keys=TMAP.values())
 
-    for n, o in zip(newkey, oldkey):  # fill dictionary w/ dummy values
-        Target[n] = o
+    targets = map(target_func,(r.target for r in requests))
+    targets = [{v:t[k] for k,v in TMAP.items()} for t in targets]
+    extra_data = map(extra_func,(r.instrument.data for r in requests))
 
-    # Non-sidereal targets: fill in dummy coordinate-related values
-    TargetType=vector.find('Request/target')
-    if TargetType.get('class') == 'TargetMovingSingle':
-        Target['RA'] = '0.0'
-        Target['DEC'] = '0.0'
-        Target['PMRA'] = 'UNKNOWN'
-        Target['PMDEC'] = 'UNKNOWN'
-        Target['COORDSYS'] = 'J2000'
-        Target['EPOCH'] = '2000.0'
+    for t,r,e in zip(targets,requests,extra_data):
+        if r.target['class'] in ('TargetMovingSingle','SofiaTargetMovingSingle'):
+            t['RA'] = '0.0'
+            t['DEC'] = '0.0'
+            t['PMRA'] = 'UNKNOWN'
+            t['PMDEC'] = 'UNKNOWN'
+            t['COORDSYS'] = 'J2000'
+            t['EPOCH'] = '2000.0'
+        # combine extra_data with target only if target info is None
+        t.update({k:v for k,v in e.items() if t[k] is None})
 
-    for n in newkey:
-        if requests[0].find('.//'+n) is not None:    # get info from first AOR
-            Target[n]=item.find('.//'+n).text   # replace dummy w/ real
-
-    # dictionary -> list
-    targetinfo = deepcopy(Tmap)
-    for pair in targetinfo:                # Target Block info
-        pair[1] = Target[pair[0]]
-
-    instinfo = [] #cleaned = []
-    for iter in Instrument:          # Instrument Block info
-        temp = deepcopy(Imap)
-        for pair in temp:
-        	# don't want deltaRaV or deltaDecW, so skip them
-            if pair[0] != 'deltaRaV' or pair[0] != 'deltaDecW':
-                pair[1] = deepcopy(Instrument[iter][pair[0]])
-        # add DITHERN RA DEC here
-        if int(Instrument[iter]['DITHER']) > 0:
-            for i in range(int(Instrument[iter]['DITHER'])):
-                something = ['DITHER' + str(i+1),
-                            Instrument[iter]['DITHER' + str(i+1)]]
-                # DITHERN goes between DITHCOORD and SWC
-                temp.insert(-5, something)
-        instinfo.append(temp)
-
-    return targetinfo, instinfo
+    return targets[0], instr
 
 
 def basic_run_block(cfg):
@@ -767,19 +919,27 @@ def look_ahead(configs, runs):
 
     return runs
 
-def proc_aorid(combo, vector, PropID):
+def proc_aorid(combo, requests, PropID):
     '''Process aorids in configs'''
     #tree = ET.parse(aorfile)
     #vector = tree.find('list/vector')
-    vector = deepcopy(vector)
-    requests = vector.findall('Request')
-    
+
+    inst = combo[1]
+    if inst != 'FORCAST':
+        #raise NotImplementedError('Only FORCAST is supported')
+        return None,None,None,None
+
+
     # remove non-relevant AORs
+    vector = list(filter(lambda r:(r.target.find('name').string,r.instrument.data.InstrumentName.string) == combo,
+                         requests))
+    '''
     for elem in requests:
         name = elem.find('target/name').text
         inst = elem.find('instrument/data/InstrumentName').text
         if (name, inst) != combo:
             vector.remove(elem)
+    '''
 
     # create root, PropID_Target_Inst
     root = PropID + '_' + combo[0] # + '_' + combo[1]  ### don't need _FORCAST
@@ -787,39 +947,28 @@ def proc_aorid(combo, vector, PropID):
     root = replace_badchar(root)
     log.info('Processing AORID %s' % root)
 
-    # call the post-processing function for this instrument
-    #   currently only FORCAST is supported
-    inst = combo[1]
-    if inst != 'FORCAST':
-        #raise NotImplementedError('Only FORCAST is supported')
-        return None,None,None,None
 
-    data = [(int(elem.findtext('instrument/data/order')),elem) for elem in vector]
+    data = [(int(r.instrument.data.order.string),r) for r in vector]
+    #data = [(int(elem.findtext('instrument/data/order')),elem) for elem in vector]
     data.sort(key=lambda x: x[0])  # sort by priority only
     # insert the last item (second item; element) from each tuple
-    vector[:] = [item[-1] for item in data]
+    #vector[:] = [item[-1] for item in data]
+    vector = [d[1] for d in data]
 
     # get the AORID of each AOR
-    aorID_ObsConfig = [
-        [(item.text) for item in
-         vector.findall('Request/instrument/data/aorID')],
-        [(item.text) for item in
-         vector.findall('Request/instrument/data/ObsPlanConfig')]]
+    aorID_ObsConfig = dict((r.instrument.data.aorID.string,r.instrument.data.ObsPlanConfig.string) for r in vector)
 
     vector = FO_rename_tags(vector)
 
-    clean_aor = FO_clean_aor(vector)
+    preamble, configs = FO_clean_aor(vector)
 
-    preamble = OrderedDict(clean_aor[0])
     log.info('Generated preamble for %s' % preamble['TARGET'])
-    configs = [OrderedDict(cfg) for cfg in clean_aor[1]]
     log.info('Generated configs for %s' % ', '.join([cfg['AORID'] for cfg in configs]))
 
     # add config type to dict for post-processing
-    for aorid,obstype in zip(*aorID_ObsConfig):
-        for cfg in configs:
-            if cfg['AORID'] == aorid:
-                cfg['TYPE'] = obstype
+    for cfg in configs:
+        if cfg['AORID'] in aorID_ObsConfig:
+            cfg['TYPE'] = aorID_ObsConfig[cfg['AORID']]
 
     # generate basic run blocks
     runs = [basic_run_block(cfg) for cfg in configs]
@@ -836,27 +985,54 @@ def AOR_to_FAORdicts(aorfile, aorids=None, comment=False):
 
     # parse input file
     log.info('Parsing %s' % aorfile)
-    tree = ET.parse(aorfile)
+    #tree = ET.parse(aorfile)
 
-    vector = tree.find('list/vector')
+    #vector = tree.find('list/vector')
+    with open(aorfile,'r') as f:
+        soup = BeautifulSoup(f.read(),XMLPARSER)
+    #print(len([item for item in vector]))
+    #print(soup.find('list/vector'))
+    #print(len(soup.find('list/vector')))
+    #exit()
 
-    # Extract Target from each AOR
-    targets = [(item.text) for item in vector.findall('Request/target/name')]
-    # Extract Instrument from each AOR
-    instruments = [(item.text) for item in vector.findall('Request/instrument/data/InstrumentName')]
+    requests = soup.find_all('Request')
 
-    # Unique combinations of target and instrument
-    target_inst = list(set(zip(targets,instruments)))
-
-    # get Proposal ID
-    PropID = tree.find('list/ProposalInfo/ProposalID').text
-    if PropID == None:
+    # get proposal id from header
+    PropID = soup.AORs.list.ProposalInfo.ProposalID
+    try:
+        PropID = PropID.string
+    except AttributeError:
+        PropID = None
+    if PropID in (None,''):
         PropID = "00_0000"    # indicates no PropID
 
-    # Loop over Target-Instrument combo
-    proc_func = partial(proc_aorid,vector=vector,PropID=PropID)
-    #faors = (proc_aorid(tree, PropID, combo) for combo in target_inst)
-    faors = map(proc_func,target_inst)
+
+    # group by targets
+    groups = defaultdict(deque)
+    for r in requests:
+        target = r.target.find('name').string
+        instrument = r.instrument.data.InstrumentName.string
+        if instrument != 'FORCAST':
+            continue
+
+        # extract instrument data
+        preamble, cfg = get_target_data(r)
+        if preamble is None:
+            continue
+        groups[target].append((preamble,cfg))
+
+    faors = deque()
+    for _,tup in groups.items():
+        preambles,cfgs = zip(*tup)
+        preamble = preambles[0]
+        cfgs = sorted(cfgs,key=lambda cfg:int(cfg['ORDER']))
+        root = replace_badchar('_'.join((PropID,preamble['TARGET'])))
+
+        # generate basic run blocks
+        runs = [basic_run_block(cfg) for cfg in cfgs]
+        runs = look_ahead(cfgs,runs)
+        faors.append((root,preamble,cfgs,runs))
+
     faors = (FAOR(root,preamble,config,run) for root,preamble,config,run in faors)
     faors = list(filter(lambda faor: faor.preamble is not None, faors))
 
@@ -869,6 +1045,47 @@ def AOR_to_FAORdicts(aorfile, aorids=None, comment=False):
 
     return faors
 
+'''
+    # Extract Target from each AOR
+    ##targets = [(item.text) for item in vector.findall('Request/target/name')]
+    targets = map(lambda r: r.target.find('name').string, requests)
+    # Extract Instrument from each AOR
+    ##instruments = [(item.text) for item in vector.findall('Request/instrument/data/InstrumentName')]
+    instruments = map(lambda r: r.instrument.data.InstrumentName.string, requests)
+
+    # Unique combinations of target and instrument
+    target_inst = list(set(zip(targets,instruments)))
+
+    #vectors = map(lambda combo: filter(
+    
+    exit()
+
+    # get Proposal ID
+    #PropID = tree.find('list/ProposalInfo/ProposalID').text
+    PropID = soup.AORs.list.ProposalInfo.ProposalID
+    try:
+        PropID = PropID.string
+    except AttributeError:
+        PropID = None
+    if PropID in (None,''):
+        PropID = "00_0000"    # indicates no PropID
+
+    # Loop over Target-Instrument combo
+    proc_func = partial(proc_aorid,requests=requests,PropID=PropID)
+    #faors = (proc_aorid(tree, PropID, combo) for combo in target_inst)
+    faors = ProgressBar.map(proc_func,target_inst,multiprocess=False)
+    faors = (FAOR(root,preamble,config,run) for root,preamble,config,run in faors)
+    faors = list(filter(lambda faor: faor.preamble is not None, faors))
+
+    # only keep faors for selected aorids
+    if aorids is not None:
+        if isinstance(aorids,str):
+            aorids = [aorids]
+        # keep only aorids in config and run specified
+        [faor.keep_aorids(aorids,comment=comment) for faor in faors]
+
+    return faors
+'''
 
 
 def main():
@@ -895,6 +1112,8 @@ def main():
 
 if __name__ == '__main__':
     main()
+    #f = AOR_to_FAORdicts('/home/msgordo1/Projects/AOR_translator/201910_FO_vC/GIMLI/07_0149.aor')
+    #exit()
     #f = FAOR.read('../AOR_translator/201906_FO_v6/DEBORAH/faors/Leg07__07_0053_HR_5171A.faor')
     #f.config[0] = FAOR.modify_dithers(f.config[0],10,10)
     #print(f.config[0])
