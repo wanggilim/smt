@@ -32,6 +32,7 @@ from requests.exceptions import ChunkedEncodingError, SSLError, ConnectionError
 from regions import RectangleSkyRegion,PointSkyRegion,RegionMeta,RegionVisual,write_ds9,ds9_objects_to_string,DS9Parser
 from pylatexenc.latexencode import utf8tolatex
 from shapely.geometry import MultiPoint, Polygon
+import matplotlib.patheffects as path_effects
 import tarfile
 import shutil
 import warnings
@@ -79,11 +80,11 @@ COLORS = ['#d62728','#1f77b4','#2ca02c','#ff7f0e','#9467bd','#17becf','#e377c2']
 GCOLOR = '#FFD700'
 FCOLOR = '#9467bd'
 
-FOV = {'A_TOT':(2.8,1.7),'C_TOT':(4.2,2.7),'D_TOT':(7.4,4.6),'E_TOT':(10.0,6.3),
-       'A_POL':(1.4,1.7),'C_POL':(2.1,2.7),'D_POL':(3.7,4.6),'E_POL':(5.0,6.3),
+FOV = {'A_TOT':(2.8,1.7),'B_TOT':(4.2,2.7),'C_TOT':(4.2,2.7),'D_TOT':(7.4,4.6),'E_TOT':(10.0,6.3),
+       'A_POL':(1.4,1.7),'B_POL':(2.1,2.7),'C_POL':(2.1,2.7),'D_POL':(3.7,4.6),'E_POL':(5.0,6.3),
        'FORCAST_IMG':(3.4,3.2),'FORCAST_GSM':(.04,3.18)}
 
-PIXSIZE = {'A_TOT':2.34, 'C_TOT':4.02,'D_TOT':6.90,'E_TOT':8.62,'FORCAST_IMG':0.768,'FORCAST_GSM':0.768}
+PIXSIZE = {'A_TOT':2.34,'B_TOT':4.00,'C_TOT':4.02,'D_TOT':6.90,'E_TOT':8.62,'FORCAST_IMG':0.768,'FORCAST_GSM':0.768}
 
 
 IMGOPTIONS = {'width':0.4*u.deg, 'height':0.4*u.deg,
@@ -495,6 +496,8 @@ def make_overview(leg, tex=True):
 
     # make metadata
     if tex:
+        if 'PI' not in l:
+            l['PI'] = ''
         overview['header'] = '\\captionline{Leg %i (%s)}{%s}' % (l['Leg'],l['Name'].replace('_','\_'),l['PI'])
         # shorten header
         for k,v in INST_REPL.items():
@@ -605,6 +608,9 @@ def generate_overview_tex(overview, metakeys=('header','footer')):
 
 def make_details(tab, tex=True, faor=False):
     '''Make observation details'''
+
+    if tab[0]['aorID'] == '99_9999_99':
+        return ''
 
     instrument = tab[0]['InstrumentName']
     if instrument == 'HAWC_PLUS':
@@ -896,6 +902,10 @@ def generate_details_tex(detail):
 
 def make_positions(tab, tex=True):
     '''Make position tables'''
+
+    if tab[0]['aorID'] == '99_9999_99':
+        return ''
+    
     rows = deque()
     for t in tab:
         if t.get('RA') is None:
@@ -966,6 +976,8 @@ def get_pos_bundle(tab, dcs, odir):
     posfiles = ['./%s/%s_%s.pos'%(fpid,fpid,x) for x in posnames]
 
     postarfile = dcs.getPOSBundle(fpid)
+    if postarfile is None:
+        return None
     with tarfile.open(postarfile) as t:
         members = t.getmembers()
         members = list(filter(lambda x: x.name in posfiles, members))
@@ -991,6 +1003,10 @@ def generate_overlays(table):
 
 def generate_overlay(row,nod=True,dithers=True):
     #tab = unique(tab,keys=['RA_aor','DEC_aor'])
+
+    if row['aorID'] == '99_9999_99':
+        return None
+    
     try:
         coord = SkyCoord(ra=row['RA'],dec=row['DEC'],unit=(u.hourangle,u.deg))
     except ValueError:
@@ -1217,7 +1233,10 @@ def make_figures(table,fdir,reg=False,guidestars=None,irsurvey=None,savefits=Fal
         for g,i in zip(guides,inside):
             if not i:
                 continue
-            fig.add_label(g['COORD'].ra.value, g['COORD'].dec.value-0.01, g['Name'])
+            fig.add_label(g['COORD'].ra.value, g['COORD'].dec.value-0.01, g['Name'],layer=g['Name'],size=8)
+            txt = fig._layers[g['Name']]
+            txt.set_path_effects([path_effects.Stroke(linewidth=1, foreground='white'),
+                                  path_effects.Normal()])
             greg = PointSkyRegion(g['COORD'],
                                   meta=RegionMeta({'label':' '.join((g['Name'],g['Imager'],g['Catalog']))}),
                                   visual=RegionVisual({'color':GCOLOR}))
@@ -1308,6 +1327,13 @@ def make_comments(table):
 
 def hawc_sio_comments(table):
     '''Assign comment block based on mode'''
+
+    if table[0]['aorID'] == '99_9999_99':
+        comment = table[0]['ObsBlkComment']
+        comment = utf8tolatex(comment)
+        comment = comment.replace(r'{\textbackslash}{\textbackslash}',r'\\')
+        return comment
+    
     head = r'Procedure for Instrument Operator: \\'
     
     if any([((row['ObsPlanConfig'] == 'POLARIZATION') and (row['ObsPlanMode'] == 'OTFMAP')) for row in table]):

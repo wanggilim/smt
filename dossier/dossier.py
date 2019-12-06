@@ -5,7 +5,7 @@
 ## SOFIA Dossier Tool
 ## Author: Michael S. Gordon (mgordon@sofia.usra.edu)
 ##
-## version: 1.0.1
+## version: 1.2.1
 ##
 ######################################################
 from dcs import DCS
@@ -23,6 +23,12 @@ from shutil import copy
 from astropy.utils.console import ProgressBar
 from functools import partial
 from configparser import ConfigParser
+
+def makeFakeAOR(leg):
+    """Generate fake AOR dictionary for the *very* special case of flight planning with targets not yet released from science review"""
+    aor = dict((('aorID','99_9999_99'),('ObsBlkID','OB_99_9999_99'),('planID','99_9999'),('target',leg['Target']),
+                ('RA','01h25m56.02s'),('DEC','68d07m48.0s'),('ObsBlkComment',leg['Comment'])))
+    return aor
 
 def get_raw_leg(leg,dcs,aordir,propdir=None,proposal=False,plankey='ObsPlanID'):
     """Get raw aor from DCS
@@ -123,9 +129,17 @@ def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID'):
     """
 
     if not leg[plankey]:
-        return None
-    
-    aor = dcs.getAORs(leg[obsblkkey])
+        # could be dead leg, or unnamed obsblk
+        #    the latter scenario is common when the next cycle targets have not yet been released from science review
+        if 'Setup' in leg['Name']:
+            return None
+        else:
+            aor = makeFakeAOR(leg)
+            
+    else:
+        aor = dcs.getAORs(leg[obsblkkey])
+
+        
     if isinstance(aor,dict):
         aor = [aor]
 

@@ -495,6 +495,8 @@ class DCS(object):
                 search = str(search[0])
             if self.refresh_cache:
                 # bypass DB
+                if clsname == 'MIS':
+                    getDB(search,delete=True)
                 return getDCS(search,*args,**kwargs)
             res = getDB(search, *args, **kwargs)
             if not res:
@@ -505,6 +507,8 @@ class DCS(object):
             # many aors/plans
             if self.refresh_cache:
                 # bypass DB, but don't perform query yet
+                if clsname == 'MIS':
+                    getDB(search,delete=True)
                 cfiles = [getDCS(s,raw=True) for s in search]
             res = getDB(search,*args,**kwargs)
             if not res:
@@ -662,6 +666,13 @@ class DCS(object):
                                       (AOR.planID.in_(search)) |
                                       (AOR.ObsBlk.in_(search))).order_by(AOR.ObsBlk,AOR.order,AOR.aorID)
         '''
+        if kwargs.get('delete'):
+            q = AOR.delete().where((AOR.aorID.in_(search))  |
+                                   (AOR.planID.in_(search)) |
+                                   (AOR.ObsBlkID.in_(search)))
+            q.execute()
+            return None
+        
         aors = AOR.select().where((AOR.aorID.in_(search))  |
                                   (AOR.planID.in_(search)) |
                                   (AOR.ObsBlkID.in_(search))).order_by(AOR.ObsBlkID,AOR.order,AOR.aorID)
@@ -670,6 +681,13 @@ class DCS(object):
     def _query_GUIDE_table(self, search, *args, **kwargs):
         if isinstance(search,str):
             search = [search]
+
+        if kwargs.get('delete'):
+            q = GUIDE.delete().where((GUIDE.aorID.in_(search)) |
+                                     (GUIDE.planID.in_(search)) |
+                                     (GUIDE.ObsBlkID.in_(search)))
+            q.execute()
+            
         guides = GUIDE.select().where((GUIDE.aorID.in_(search)) |
                                       (GUIDE.planID.in_(search)) |
                                       (GUIDE.ObsBlkID.in_(search))).order_by(GUIDE.Radius)
@@ -680,6 +698,11 @@ class DCS(object):
         if isinstance(search,str):
             search = [search]
 
+        if kwargs.get('delete'):
+            q = FAOR.delete().where(FAOR.AORID.in_(search))
+            q.execute()
+            return None
+            
         faors = FAOR.select().where(FAOR.AORID.in_(search))
         return self._proc_res(faors,FAOR, *args, **kwargs)
 
@@ -856,6 +879,13 @@ class DCS(object):
             legs = None
         return legs
         '''
+        if kwargs.get('delete'):
+            q = MIS.delete().where((MIS.FlightPlan.in_(search)) |
+                                   (MIS.FlightName.in_(search)) |
+                                   (MIS.ObsBlkID.in_(search)))
+            q.execute()
+            return None
+        
         legs = MIS.select().where((MIS.FlightPlan.in_(search)) |
                                   (MIS.FlightName.in_(search)) |
                                   (MIS.ObsBlkID.in_(search))).order_by(MIS.FlightPlan,MIS.Leg)
@@ -930,6 +960,7 @@ class DCS(object):
         if local:
             local = Path(local).glob('**/*.misxml')
             flightids = [f.stem.replace('_INIT','') for f in local]
+            flightids = [f.replace('_SCI','') for f in flightids]
             return flightids
         
         submit['value'] = series
@@ -1093,7 +1124,10 @@ class DCS(object):
             if 'location.href' in soup.script.text:
                 fname = soup.script.text.strip().split('location.href')[1]
                 fname = fname[3:-2]
-        cfile = self._queryDCS(self.dcsurl/fname, form, 'TAR')
+        try:
+            cfile = self._queryDCS(self.dcsurl/fname, form, 'TAR')
+        except UnboundLocalError:
+            cfile = None
         return cfile                                                  
 
     def getProposal(self,propid,
