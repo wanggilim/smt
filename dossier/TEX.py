@@ -609,13 +609,14 @@ def generate_overview_tex(overview, metakeys=('header','footer')):
 def make_details(tab, tex=True, faor=False):
     '''Make observation details'''
 
-    if tab[0]['aorID'] == '99_9999_99':
+    if tab[0]['aorID'] in ('99_9999_99','--'):
         return ''
 
     instrument = tab[0]['InstrumentName']
     if instrument == 'HAWC_PLUS':
-        keys = ('ObsPlanConfig','aorID','Name','InstrumentSpectralElement1','Repeat','NodTime','ChopThrow','ChopAngle','ScanTime','ScanAmplitudeEL','ScanAmplitudeXEL','ScanRate','ChopAngleCoordinate')
-        key_map = {'ObsPlanConfig':'Mode','aorID':'AORID','ChopAngleCoordinate':'Sys','InstrumentSpectralElement1':'Band/Bore','ScanAmplitudeEL':'ScanAmp'}
+        #keys = ('ObsPlanConfig','aorID','Name','InstrumentSpectralElement1','Repeat','NodTime','ChopThrow','ChopAngle','ScanTime','ScanAmplitudeEL','ScanAmplitudeXEL','ScanRate','ChopAngleCoordinate')
+        keys = ('ObsPlanConfig','aorID','target','InstrumentSpectralElement1','Repeat','NodTime','ChopThrow','ChopAngle','ScanTime','ScanAmplitudeEL','ScanAmplitudeXEL','ScanRate','ChopAngleCoordinate')
+        key_map = {'ObsPlanConfig':'Mode','aorID':'AORID','ChopAngleCoordinate':'Sys','InstrumentSpectralElement1':'Band/Bore','ScanAmplitudeEL':'ScanAmp','target':'Name'}
 
         # replace some values
         for t in tab:
@@ -869,9 +870,9 @@ def generate_details_tex(detail):
 
         # pull left if too long
         try:
-            if ((max([len(name) for name in d['Name']]) > 13) and ('Chop Throw' in colnames)) or (('Chop Throw' in colnames) and ('Scan Amp' in colnames)):
+            if ((max([len(name) for name in d['Name']]) > 13) and ('ChopThrow' in colnames)) or (('ChopThrow' in colnames) and ('ScanAmp' in colnames)):
                 texcode = texcode.replace(r'\begin{tabular}','\\hspace*{-1cm}\n\\begin{tabular}')
-            elif 'Nod Throw' in colnames or 'Nod Thw' in colnames:
+            elif 'NodThrow' in colnames or 'NodThw' in colnames:
                 texcode = texcode.replace(r'\begin{tabular}','\\hspace*{-1cm}\n\\begin{tabular}')
             else:
                 pass
@@ -903,7 +904,7 @@ def generate_details_tex(detail):
 def make_positions(tab, tex=True):
     '''Make position tables'''
 
-    if tab[0]['aorID'] == '99_9999_99':
+    if tab[0]['aorID'] in ('99_9999_99','--'):
         return ''
     
     rows = deque()
@@ -911,7 +912,8 @@ def make_positions(tab, tex=True):
         if t.get('RA') is None:
             continue
         aorid = t['aorID']
-        name = t['POSName'] if t.get('POSName') else t['Name']
+        #name = t['POSName'] if t.get('POSName') else t['Name']
+        name = t['POSName'] if t.get('POSName') else t['target']
         coord = SkyCoord(ra=t['RA'],dec=t['DEC'],unit=(u.hourangle,u.deg))
         ra,dec = coord.to_string('hmsdms',sep=':',precision=2).split()
         order = t['order']
@@ -1004,7 +1006,7 @@ def generate_overlays(table):
 def generate_overlay(row,nod=True,dithers=True):
     #tab = unique(tab,keys=['RA_aor','DEC_aor'])
 
-    if row['aorID'] == '99_9999_99':
+    if row['aorID'] in ('99_9999_99','--'):
         return None
     
     try:
@@ -1328,9 +1330,10 @@ def make_comments(table):
 def hawc_sio_comments(table):
     '''Assign comment block based on mode'''
 
-    if table[0]['aorID'] == '99_9999_99':
+    if table[0]['aorID'] in ('99_9999_99','--'):
         comment = table[0]['ObsBlkComment']
         comment = utf8tolatex(comment)
+        comment = comment.replace('\n',r'\\')
         comment = comment.replace(r'{\textbackslash}{\textbackslash}',r'\\')
         return comment
     
@@ -1381,8 +1384,11 @@ def get_FAOR_map(faordir,keys=None,label=''):
 def update_with_cfg(table, cfg):
     """Update table rows with cfg"""
 
-    key = table[0]['fkey']
-    blk = table[0]['ObsBlkID']
+    try:
+        key = table[0]['fkey']
+        blk = table[0]['ObsBlkID']
+    except KeyError:
+        return table
 
     # first, check if 'keep' keyword is present in fkey or obsblk
     if cfg.has_section(key) and 'aorids' in cfg[key]:

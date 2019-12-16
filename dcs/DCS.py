@@ -20,15 +20,6 @@ from . import DBmodels
 from pandas import DataFrame
 from astropy.utils.console import ProgressBar
 from . import MIS as dcsMIS
-'''
-import OBS
-import AOR
-import POS
-import STATUS
-import DETAILS
-import AORSEARCH
-import OBSSEARCH
-'''
 
 DEBUG = False
 DCSURL = 'https://dcs.arc.nasa.gov'

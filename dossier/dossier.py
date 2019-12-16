@@ -24,10 +24,14 @@ from astropy.utils.console import ProgressBar
 from functools import partial
 from configparser import ConfigParser
 
-def makeFakeAOR(leg):
+def makeFakeAOR(leg,aorid='99_9999_99',planid='99_9999',obsblk='--'):
     """Generate fake AOR dictionary for the *very* special case of flight planning with targets not yet released from science review"""
-    aor = dict((('aorID','99_9999_99'),('ObsBlkID','OB_99_9999_99'),('planID','99_9999'),('target',leg['Target']),
-                ('RA','01h25m56.02s'),('DEC','68d07m48.0s'),('ObsBlkComment',leg['Comment'])))
+    aor = dict((('aorID',aorid),
+                ('ObsBlkID',obsblk),
+                ('planID',planid),
+                ('target',leg['Target']),
+                ('RA',leg['RA']),('DEC',leg['DEC']),
+                ('ObsBlkComment',leg['Comment'])))
     return aor
 
 def get_raw_leg(leg,dcs,aordir,propdir=None,proposal=False,plankey='ObsPlanID'):
@@ -131,10 +135,13 @@ def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID'):
     if not leg[plankey]:
         # could be dead leg, or unnamed obsblk
         #    the latter scenario is common when the next cycle targets have not yet been released from science review
+        '''
         if 'Setup' in leg['Name']:
             return None
         else:
             aor = makeFakeAOR(leg)
+        '''
+        aor = makeFakeAOR(leg)
             
     else:
         aor = dcs.getAORs(leg[obsblkkey])
