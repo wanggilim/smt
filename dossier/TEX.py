@@ -52,6 +52,7 @@ if DEBUG is False:
 # formatters for astropy table columns
 COL_FORMATTER = lambda x: x.replace('_','\_')
 INT_FORMATTER = lambda x: '%i'%int(np.float(x)) if x not in (None,'None',-9999,'--') else ''
+ZERO_INT_FORMATTER = lambda x: '%i'%int(np.float(x)) if x not in (None,'None',-9999,'--',0,'0') else ''
 
 def INT_CONVERTER(row,cols):
     """Convert row to ints from strings or floats"""
@@ -82,9 +83,13 @@ FCOLOR = '#9467bd'
 
 FOV = {'A_TOT':(2.8,1.7),'B_TOT':(4.2,2.7),'C_TOT':(4.2,2.7),'D_TOT':(7.4,4.6),'E_TOT':(10.0,6.3),
        'A_POL':(1.4,1.7),'B_POL':(2.1,2.7),'C_POL':(2.1,2.7),'D_POL':(3.7,4.6),'E_POL':(5.0,6.3),
+       'A_C2N':(1.4,1.7),'B_C2N':(2.1,2.7),'C_C2N':(2.1,2.7),'D_C2N':(3.7,4.6),'E_C2N':(5.0,6.3),
        'FORCAST_IMG':(3.4,3.2),'FORCAST_GSM':(.04,3.18)}
 
-PIXSIZE = {'A_TOT':2.34,'B_TOT':4.00,'C_TOT':4.02,'D_TOT':6.90,'E_TOT':8.62,'FORCAST_IMG':0.768,'FORCAST_GSM':0.768}
+PIXSIZE = {'A_TOT':2.34,'B_TOT':4.00,'C_TOT':4.02,'D_TOT':6.90,'E_TOT':8.62,
+           'A_POL':2.34,'B_POL':4.00,'C_POL':4.02,'D_POL':6.90,'E_POL':8.62,
+           'A_C2N':2.34,'B_C2N':4.00,'C_C2N':4.02,'D_C2N':6.90,'E_C2N':8.62,
+           'FORCAST_IMG':0.768,'FORCAST_GSM':0.768}
 
 
 IMGOPTIONS = {'width':0.4*u.deg, 'height':0.4*u.deg,
@@ -92,7 +97,8 @@ IMGOPTIONS = {'width':0.4*u.deg, 'height':0.4*u.deg,
               'vmin':None, 'vmax':None,
               'recenter':None,'roll':True,
               'invert':True,'irsurvey':None,
-              'compass':True,'nofigure':False}
+              'compass':True,'nofigure':False,
+              'observed':False}
 
 TARFOFFSET = {'HAWC_PLUS':3*u.deg,
               'FORCAST':40.6*u.deg}
@@ -127,7 +133,8 @@ HAWC_SIO = {
     - Do NOT change LOS within a set of 4 scans \\
     """
     }
- 
+
+STRIKETHROUGH_REPL = r'\1[-1.7ex]\n\\hline\\noalign{\\vspace{\\dimexpr 1.7ex-\\doublerulesep}}'
 
 
 def get_latex_env(directory):
@@ -626,6 +633,7 @@ def make_details(tab, tex=True, faor=False):
 
             # store filter for boresite
             filt = t['InstrumentSpectralElement1'][-1]
+            spec2 = t['InstrumentSpectralElement2']
 
             # scan mode
             if t['ObsPlanMode'] == 'OTFMAP':
@@ -649,14 +657,28 @@ def make_details(tab, tex=True, faor=False):
                         
                 elif t['ObsPlanConfig'] == 'POLARIZATION':
                     t['ObsPlanConfig'] = 'LISPOL'
-                    t['InstrumentSpectralElement1'] = '/'.join((filt,filt))
+                    t['InstrumentSpectralElement1'] = '/'.join((filt,spec2[-1]))
                 else:
                     t['ObsPlanConfig'] = '?'
 
-            # polarimetry
+                # set chops to none
+                t['ChopAngle'] = -9999
+                t['ChopThrow'] = -9999
+                t['NodAngle'] = -9999
+                t['NodThrow'] = -9999
+                t['NodTime'] = None
+
+            # C2N
             else:
-                t['ObsPlanConfig'] = 'POL'
-                t['InstrumentSpectralElement1'] = '/'.join((filt,filt))
+                if t['ObsPlanConfig'] == 'POLARIZATION':
+                    t['ObsPlanConfig'] = 'POL'
+                    t['InstrumentSpectralElement1'] = '/'.join((filt,spec2[-1]))
+                else:
+                    # C2N total_intensity
+                    t['ObsPlanConfig'] = 'C2N'
+                    spec2 = 'Open' if spec2 == 'OPEN' else spec2[-1]
+                    t['InstrumentSpectralElement1'] = '/'.join((filt,spec2))
+                    
                 
         # keep certain keys
         detail = [{key:t[key] for key in keys} for t in tab]
@@ -674,7 +696,7 @@ def make_details(tab, tex=True, faor=False):
         if all((mode in ('LIS','LISPOL','BOX') for mode in detail['Mode'])):
             detail.remove_columns(('NodTime','ChopThrow','ChopAngle','Sys'))
         # if all modes are pol, drop scan params
-        if all(mode == 'POL' for mode in detail['Mode']):
+        if all(mode in ('POL','C2N') for mode in detail['Mode']):
             detail.remove_columns(('ScanTime','ScanAmp','ScanRate'))
 
         # if any dithering, make dither footer
@@ -682,7 +704,7 @@ def make_details(tab, tex=True, faor=False):
         if any((t.get('DitherPattern') for t in tab)):
             dithscale = (t.get('DitherScale') for t in tab)
             dithunit = (unit_map.get(t.get('DitherCoord')) for t in tab)
-            dithband = (t['InstrumentSpectralElement1'][-1] for t in tab)
+            dithband = (t['InstrumentSpectralElement1'][0] for t in tab)
             dithscale = (str(int(scale)).rjust(2).replace(' ','~') if scale else '' for scale in dithscale)
             footer = ['\t%s: %s %s' % (band,scale,unit) for band,scale,unit \
                       in zip(dithband,dithscale,dithunit) if scale]
@@ -784,6 +806,8 @@ def make_details(tab, tex=True, faor=False):
             detail[col].format = COL_FORMATTER
 
         # set int formatter
+        blank_zero_cols = ('ScanDur','ChopThrow','ScanTime','NodTime',
+                           'ScanAmp','ScanRate','NodThrow')   # make a zero blank
         for col in ('NodTime','Repeat','ScanDur','ChopThrow','ChopAngle','ScanTime',
                     'ScanAmp','ScanRate','NodThrow','NodAngle','TotalTime','IntTime'):
             try:
@@ -799,7 +823,10 @@ def make_details(tab, tex=True, faor=False):
                         continue
                 floats = (np.float(x).is_integer() for x in floats)
                 if all(floats):
-                    detail[col].format = INT_FORMATTER
+                    if col in blank_zero_cols:
+                        detail[col].format = ZERO_INT_FORMATTER
+                    else:
+                        detail[col].format = INT_FORMATTER
             except (KeyError,ValueError):
                 continue
 
@@ -812,6 +839,10 @@ def make_details(tab, tex=True, faor=False):
 
         # if FORCAST, split into two tables
         #### NOT IMPLEMENTED YET
+
+        # add strikethrough
+        observed_dict = {t['aorID']:t.get('observed',False) for t in tab}
+        detail.meta['observed'] = observed_dict
 
         # return tex string
         detail = generate_details_tex(detail)
@@ -835,6 +866,7 @@ def generate_details_tex(detail):
         detail = [detail]
 
     texcodes = deque()
+    
     for d in detail:
         # col align param must be special for boldface header line
         col_align = ['c']*len(d.colnames)
@@ -848,8 +880,9 @@ def generate_details_tex(detail):
         colnames = d.colnames.copy()
 
         # rename colnames to have headercolor
-        for col in d.colnames:
-            newcol = '\\cellcolor{headercolor}%s'%col
+        newcols = {col:'\\cellcolor{headercolor}%s'%col for col in d.colnames}
+        for col,newcol in newcols.items():
+            #newcol = '\\cellcolor{headercolor}%s'%col
             d.rename_column(col,newcol)
             d.meta['units'][newcol] = d.meta['units'].get(col,'')
 
@@ -870,7 +903,7 @@ def generate_details_tex(detail):
 
         # pull left if too long
         try:
-            if ((max([len(name) for name in d['Name']]) > 13) and ('ChopThrow' in colnames)) or (('ChopThrow' in colnames) and ('ScanAmp' in colnames)):
+            if (((max([len(name) for name in d[newcols['Name']]]) > 13) and ('ChopThrow' in colnames)) or (('ChopThrow' in colnames) and ('ScanAmp' in colnames))):
                 texcode = texcode.replace(r'\begin{tabular}','\\hspace*{-1cm}\n\\begin{tabular}')
             elif 'NodThrow' in colnames or 'NodThw' in colnames:
                 texcode = texcode.replace(r'\begin{tabular}','\\hspace*{-1cm}\n\\begin{tabular}')
@@ -890,11 +923,21 @@ def generate_details_tex(detail):
         texcode = texcode.replace('Nod Time','Nod')
         texcode = texcode.replace('nan','')
         texcode = texcode.replace('Chop Throw','ChpT')
+        texcode = texcode.replace('ChopThrow','ChpT')
         texcode = texcode.replace('Chop Ang','ChpA')
+        texcode = texcode.replace('ChopAngle','ChpA')
         texcode = texcode.replace('Nod Throw','NodT')
+        texcode = texcode.replace('NodThrow','NodT')
         texcode = texcode.replace('Nod Ang','NodA')
+        texcode = texcode.replace('NodAngle','NodA')
+        texcode = texcode.replace('Nod Time','NodT')
         if 'Nod Dwell' in colnames:
             texcode = texcode.replace('Nod Dwell','Nod')
+
+
+        # strikethrough 'observed' aorIDs
+        texcode = strikethrough(d.meta['observed'],texcode)
+            
         texcodes.append(texcode)
 
     texcodes = '\n\n'.join(list(texcodes))
@@ -935,6 +978,10 @@ def make_positions(tab, tex=True):
     if tex:
         for col in ['AORID','Name']:
             position[col].format = COL_FORMATTER
+
+        # add strikethrough
+        observed_dict = {t['aorID']:t.get('observed',False) for t in tab}
+        position.meta['observed'] = observed_dict
         position = generate_pos_tex(position)
     else:
         position = position.to_pandas().to_dict('records')
@@ -969,7 +1016,20 @@ def generate_pos_tex(position):
                                   'data_end':'\hline'})
         texcode = f.getvalue()
 
+    # strikethrough 'observed' aorIDs
+    texcode = strikethrough(position.meta['observed'],texcode)
+
     return texcode
+
+
+def strikethrough(aordict,texcode):
+    for aorid,obs in aordict.items():
+        if obs:
+            a = aorid.replace('_','\\\_')
+            pattern = r'(%s\s\&.*\s\\\\)'%a
+            texcode = re.sub(pattern,STRIKETHROUGH_REPL,texcode)
+    return texcode
+
 
 def get_pos_bundle(tab, dcs, odir):
     '''Download pos bundle and filter by included AORs'''
@@ -1037,7 +1097,10 @@ def generate_overlay(row,nod=True,dithers=True):
     band = row['InstrumentSpectralElement1'].split('_')[-1]
     mode = row['ObsPlanConfig']
 
-    mode = 'TOT' if mode == 'TOTAL_INTENSITY' else 'POL'
+    if row['ObsPlanMode'] == 'C2N' and mode == 'TOTAL_INTENSITY':
+        mode = 'C2N'
+    else:
+        mode = 'TOT' if mode == 'TOTAL_INTENSITY' else 'POL'
 
     label = '%s_%s'%(band,mode)
     try:
@@ -1057,7 +1120,6 @@ def generate_overlay(row,nod=True,dithers=True):
     if label not in FOV:
         # FORCAST
         label = label.replace('_TOT','')
-
     
     overlay = make_box(coord,width,height,roll,TARFoffset,label=label,name=name,
                        color=COLORS[row['cidx']%len(COLORS)],split=split,aorid=row['aorID'])
