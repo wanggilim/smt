@@ -75,7 +75,7 @@ def get_keydict(root,keys,exclude=None,as_tag=False):
 
 def get_attrdict(tags,data_attr,ext='_'):
     """Expand out _start and _end and get attrs"""
-    attrdict = {ext.join((k,attr)):tag[attr] for k,tag in tags.items() for attr in data_attr[k]}
+    attrdict = {ext.join((k,attr)):tag[attr] if tag else None for k,tag in tags.items() for attr in data_attr[k]}
     # this works, I promise
     return attrdict
         
@@ -244,6 +244,9 @@ def MIS_to_rows(filename, miscfg):
     """Converts MIS xml files to rows for DB ingestion"""
     with open(filename,'r') as f:
         mis = BeautifulSoup(f,HTMLPARSER).body.flightplan
+
+    #wps = mis.find_all('waypoint')
+    #[w.extract() for w in wps]
 
     # Get flight info
     meta = {"FlightPlan":mis['id'],"Series":'_'.join(mis['id'].split('_')[0:-1])}

@@ -1282,29 +1282,33 @@ def make_figures(table,fdir,reg=False,guidestars=None,irsurvey=None,savefits=Fal
         box = Polygon(footprint)
         
         guides = guidestars[table[0]['ObsBlkID']]
-        guidecoord = SkyCoord([g['COORD'] for g in guides])
+        try:
+            guidecoord = SkyCoord([g['COORD'] for g in guides])
+        except IndexError:
+            guidecoord = None
 
+        if guidecoord:
+            # do this check in case the above try/except fails
+            fig.show_markers(guidecoord.ra,guidecoord.dec,
+                             marker='o',s=80,
+                             linewidths=2,edgecolor=GCOLOR)
 
-        fig.show_markers(guidecoord.ra,guidecoord.dec,
-                         marker='o',s=80,
-                         linewidths=2,edgecolor=GCOLOR)
-        
-        points = MultiPoint([(g.ra.value,g.dec.value) for g in guidecoord])
-        inside = (box.contains(p) for p in points)
+            points = MultiPoint([(g.ra.value,g.dec.value) for g in guidecoord])
+            inside = (box.contains(p) for p in points)
 
-        gregs = deque()
+            gregs = deque()
 
-        for g,i in zip(guides,inside):
-            if not i:
-                continue
-            fig.add_label(g['COORD'].ra.value, g['COORD'].dec.value-0.01, g['Name'],layer=g['Name'],size=8)
-            txt = fig._layers[g['Name']]
-            txt.set_path_effects([path_effects.Stroke(linewidth=1, foreground='white'),
-                                  path_effects.Normal()])
-            greg = PointSkyRegion(g['COORD'],
-                                  meta=RegionMeta({'label':' '.join((g['Name'],g['Imager'],g['Catalog']))}),
-                                  visual=RegionVisual({'color':GCOLOR}))
-            gregs.append(greg)
+            for g,i in zip(guides,inside):
+                if not i:
+                    continue
+                fig.add_label(g['COORD'].ra.value, g['COORD'].dec.value-0.01, g['Name'],layer=g['Name'],size=8)
+                txt = fig._layers[g['Name']]
+                txt.set_path_effects([path_effects.Stroke(linewidth=1, foreground='white'),
+                                      path_effects.Normal()])
+                greg = PointSkyRegion(g['COORD'],
+                                      meta=RegionMeta({'label':' '.join((g['Name'],g['Imager'],g['Catalog']))}),
+                                      visual=RegionVisual({'color':GCOLOR}))
+                gregs.append(greg)
             
         
     '''
@@ -1411,7 +1415,19 @@ def hawc_sio_comments(table):
     comment = '%s%s' % (head, HAWC_SIO[mode])
     
     return comment
-    
+
+def copy_comments(filename):
+    """Return comments from .tex file, if they exist"""
+    # first find existing .tex file
+    if Path(filename).exists():
+        with open(filename,'r') as f:
+            text = f.read()
+    else:
+        return None
+
+    if r'%# <COMMENT' not in text:
+        return None
+
 
 def match_FAORs(tables,dcs):
     aorIDs = set((row['aorID'] for table in tables for row in table))
@@ -1491,6 +1507,7 @@ def write_tex_dossier(tables, name,title,filename,
                       fpi=False,
                       savefits=False,
                       irsurvey=None,
+                      preserve_comments=False,
                       tex=True,
                       writetex=True):
     '''Write dossier pages for each table in tables'''
@@ -1562,6 +1579,10 @@ def write_tex_dossier(tables, name,title,filename,
                       irsurvey=irsurvey,savefits=savefits,fpi=fpi)
     print('Generating figures...')
     imagefiles = ProgressBar.map(figfunc,tables,multiprocess=MP)
+
+    if preserve_comments:
+        cooments = copy_comments(filename)
+                
 
     if sio:
         print('Generating comments...')

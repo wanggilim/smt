@@ -176,6 +176,7 @@ def generate_dossier(flightid, odir,
                      savefits=False,
                      irsurvey=None,
                      writetex=True,
+                     preserve_comments=False,
                      plankey='ObsPlanID',obsblkkey='ObsBlkID'):
     """Generate dossier from flightid
 
@@ -270,6 +271,7 @@ def generate_dossier(flightid, odir,
                           fpi=fpi,
                           savefits=savefits,
                           irsurvey=irsurvey,
+                          preserve_comments=preserve_comments,
                           writetex=writetex)
     return output
 
@@ -355,6 +357,9 @@ def _argparse():
     parser.add_argument('-t','--template',
                         dest='template',type=str,default=tex_DEFAULT,
                         help='Template file (default=dossier/template.tex)')
+    parser.add_argument('-preserve','--preserve-comments',
+                        dest='preserve_comments',action='store_true',
+                        help='Preserve comments from existing .tex file, if it exists')
 
     return parser
     
@@ -445,7 +450,8 @@ def main():
                                   fpi=args.fpi,
                                   irsurvey=args.irsurvey,
                                   savefits=args.savefits,
-                                  writetex=args.writetex)
+                                  writetex=args.writetex,
+                                  preserve_comments=args.preserve_comments)
         outfiles.append(output)
     
     if args.compile and len(outfiles) and args.writetex:
