@@ -512,6 +512,8 @@ def make_overview(leg, tex=True):
     else:
         overview['header'] ={k:l.get(k,'') for k in hcols}
 
+    print(l)
+        
     # footer holds mis file info
     footer = {}
     for k in mcols:
