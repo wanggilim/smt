@@ -141,7 +141,11 @@ def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID'):
         else:
             aor = makeFakeAOR(leg)
         '''
-        aor = makeFakeAOR(leg)
+        if leg.get('Elev_start') is None:
+            # non-obs leg
+            return None
+        else:
+            aor = makeFakeAOR(leg)
             
     else:
         aor = dcs.getAORs(leg[obsblkkey])

@@ -75,8 +75,11 @@ def get_keydict(root,keys,exclude=None,as_tag=False):
 
 def get_attrdict(tags,data_attr,ext='_'):
     """Expand out _start and _end and get attrs"""
-    attrdict = {ext.join((k,attr)):tag[attr] for k,tag in tags.items() for attr in data_attr[k]}
-    # this works, I promise
+    try:
+        attrdict = {ext.join((k,attr)):tag[attr] for k,tag in tags.items() for attr in data_attr[k]}
+    except TypeError:
+        # likely a non-science leg
+        attrdict = {ext.join((k,attr)):None for k,tag in tags.items() for attr in data_attr[k]}
     return attrdict
         
 def make_position(request):
