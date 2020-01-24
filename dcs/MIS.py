@@ -6,9 +6,12 @@ import numpy as np
 from collections import OrderedDict, deque
 from astropy.coordinates import SkyCoord
 import astropy.units as u
+import json
+from functools import partial
+from pathlib import Path
 
 LEG_RE = re.compile('(Leg\s\d.+?)\n\n\n', re.S)
-LEG_APPROACH_RE = re.compile('(Leg\s\d*\s\(Approach.+?)\n\n', re.S)
+LEG_APPROACH_RE = re.compile('(Leg\s\d*\s\(Approach.+?)\Z', re.S)
 
 LEG_TAB_RE = re.compile('(UTC\s*MHdg.+?)(?:(?:Leg)|\Z)', re.S)
 
@@ -30,7 +33,7 @@ META_KEYS = ['Flight Plan ID','Start','Leg Dur','Alt.','ObspID','Blk','Priority'
              'Target','RA','Dec','Equinox','Elev','ROF','rate','FPI','Moon Angle',
              'Moon Illum','THdg','rate2','Init Hdg','Sun Az Delta','Runway','End Lat','End Lon',
              'End lat','End lon',
-             'Sunrise','Sunrise Az','Airport','NAIF ID','Sunset','Sunset Az',
+             'Sunrise','Sunrise Az','Airport','NAIF ID','Sunset','Sunset Az','Sun Az Delta','Wind Override',
              'Comment','DCS comments','Note','neighbors',
              'Legs','Mach','Takeoff','Obs Time','Flt Time','Landing']
 
@@ -49,6 +52,27 @@ def convert_column_dtypes(table,
                 row[col] = ''
         
     return table
+
+
+def get_attrdict(drow,data_attr,ext='_'):
+    """Expand out _start and _end and get attrs"""    
+    for k,v in data_attr.items():
+        val = drow.pop(k)
+        if val is None:
+            val = [None] * len(v)
+        else:
+            # string like '[val1,val2]'
+            try:
+                if ' deg/min' in val:
+                    val = val.split(' deg/min')[0]
+                val = [float(x) for x in val[1:-1].split(', ')]
+            except:
+                val = [None] * len(v)
+        
+        nkeys = [ext.join((k,vi)) for vi in v]
+        drow.update({*zip(nkeys,val)})
+        
+    return drow
 
 
 def extract_keys(leg,keys=META_KEYS):
@@ -111,6 +135,15 @@ def get_legs(filename):
         legs = LEG_RE.findall(text)         # both leg preamble and utc tab
         utc_tabs = LEG_TAB_RE.findall(text) # just utc tab
 
+        # add final leg
+        fleg = LEG_APPROACH_RE.findall(text)[0]
+        fleg,futc_tab = fleg.split('UTC')
+        futc_tab = 'UTC%s'%futc_tab
+
+        legs.append(fleg)
+        utc_tabs.append(futc_tab)
+        
+
         # remove possible SUAs
         for idx,tab in enumerate(utc_tabs):
             sua = SUA_RE.findall(tab)
@@ -121,7 +154,7 @@ def get_legs(filename):
         top = TOP_META_RE.findall(text)[0]
         top = OrderedDict(zip(('Filename','Saved'),top))
         mission = MISSION_META_RE.findall(text)[0]
-
+        top['FILENAME'] = filename
         
 
     # remove utc tabs from legs
@@ -146,7 +179,7 @@ def get_legs(filename):
     utc_tabs = [Table.read(tab,format='utc-tab') for tab in utc_tabs]
 
     # get leg metadata
-    leg_names = [LEG_NAME_RE.findall(leg)[0].strip() for leg in legs]
+    leg_names = (LEG_NAME_RE.findall(leg)[0].strip() for leg in legs)
 
     leg_meta = [extract_keys(leg) for leg in legs]
     
@@ -156,6 +189,7 @@ def get_legs(filename):
         meta['Leg'] = int(LEG_NUM_RE.findall(leg_name)[0])
         meta.move_to_end('LegName',last=False)
         meta.move_to_end('Leg',last=False)
+
 
     # finish top level metadata
     summary = extract_keys(mission)
@@ -170,6 +204,66 @@ def get_legs(filename):
 
     return summary, utc_tabs
 
+def MIS_table_to_DB(table,miscfg):
+    """Upconvert legacy .mis table to DB compatibility"""
+    legmap = json.loads(miscfg['legacy_map'])
+    data_attr = json.loads(miscfg['data_attr'])
+
+    # rate should be ROFRT
+    data_attr['rate'] = data_attr.pop('ROFRT')
+    # rate2 should be THdgRT
+    data_attr['rate2'] = data_attr.pop('THdgRT')
+    
+    meta_legs = filter(lambda k: 'Leg' in k,table.meta.keys())
+    meta_legs = filter(lambda k: k != 'Legs', meta_legs)
+    meta_legs = [table.meta.get(k) for k in meta_legs]
+    #meta_legs = list(filter(lambda leg: leg or leg is not None or len(leg), meta_legs))
+
+    #print(meta_legs[0])
+    #print(meta_legs[-1])
+    #exit()
+
+    drows = map(lambda leg: {k:leg.get(v) for k,v in legmap.items()}, meta_legs)
+    drows = list(filter(lambda row: row['Leg'] is not None,drows))
+
+    # get additional attributes
+    attrs = map(lambda leg: {k:leg.get(k) for k in data_attr.keys()}, meta_legs)
+    attr_func = partial(get_attrdict,data_attr=data_attr)
+    attrs = list(map(attr_func,attrs))
+
+    for attr in attrs:
+        attr['ROFRT_start'] = attr.pop('rate_start')
+        attr['ROFRT_end'] = attr.pop('rate_end')
+        attr['THdgRT_start'] = attr.pop('rate2_start')
+        attr['THdgRT_end'] = attr.pop('rate2_end')
+    
+    flightplan = table.meta['Flight Plan ID']
+    flightname = flightplan.split('_')[-1]
+    flightseries = '_'.join(flightplan.split('_')[0:-1])
+    filename = table.meta['FILENAME']
+    stats = Path(filename).stat()
+    ts = stats.st_mtime if stats.st_mtime > stats.st_ctime else stats.st_ctime
+
+    for d,a in zip(drows,attrs):
+        g = d.get('GuideStar')
+        if g is not None:
+            d['GuideStar'] = 'FPI: %s'%g
+        d['FlightPlan'] = flightplan
+        d['FlightName'] = flightname
+        d['Series'] = flightseries
+        d['fkey'] = 'Leg%s_%s' % (d['Leg'],flightplan)
+        d['FILENAME'] = filename
+        d['TIMESTAMP'] = ts
+        d.update(a)
+
+    # get utctab
+    _,utctabs = get_legs(filename)
+    utctabs = map(lambda utctab: utctab.to_pandas().to_dict(orient='records'), utctabs)
+    for d,utc in zip(drows,utctabs):
+        d['WAYPTS'] = json.dumps(utc) if utc else None
+        
+    return drows
+    
 
 def read_MIS_file(filename):
     '''Parse MIS file into table'''
@@ -196,7 +290,8 @@ def read_MIS_file(filename):
     table.rename_column('ObspID','AOR')
     table.rename_column('Dec','DEC')
 
-    # remove rows with empry leg
+    
+    # remove rows with empty leg
     idx = np.where(table['Leg'] == None)
     if idx:
         table.remove_rows(idx[0])
@@ -224,6 +319,8 @@ def read_MIS_file(filename):
             table.meta['Leg%i'%(idx+1)] = leg.meta
 
     return table
+
+
     
 # Register Table class readers
 registry.register_reader('utc-tab', Table, read_UTC_tab)
@@ -232,6 +329,15 @@ registry.register_reader('mis-tab', Table, read_MIS_file)
 
 
 if __name__ == '__main__':
-    tab = Table.read('mis/201807_HA_IAGO.mis',format='mis-tab')
+    #tab = Table.read('mis/201807_HA_IAGO.mis',format='mis-tab')
+    #tab.pprint()
+    from configparser import ConfigParser
+
+    cfg = ConfigParser()
+    cfg.read('DBmodels.cfg')
+    
+    tab = Table.read('/home/msgordo1/Documents/SOFIA/Flights/Cyc7/FORCAST/OC7/OC07G/201910_FO_SERIES_INIT/201910_FO_GAVIN.mis',
+                     format='mis-tab')
     tab.pprint()
+    rows = MIS_table_to_DB(tab, cfg['MIS'])
 

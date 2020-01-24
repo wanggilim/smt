@@ -16,10 +16,20 @@ import time
 import uuid
 from configparser import ConfigParser
 from peewee import SqliteDatabase
-from . import DBmodels
 from pandas import DataFrame
 from astropy.utils.console import ProgressBar
-from . import MIS as dcsMIS
+try:
+    from . import MIS as dcsMIS
+except ImportError:
+    import MIS as dcsMIS
+try:
+    from . import DBmodels
+except ImportError:
+    import DBmodels
+try:
+    from . import OBSSEARCH
+except ImportError:
+    import OBSSEARCH
 
 DEBUG = False
 DCSURL = 'https://dcs.arc.nasa.gov'
@@ -345,7 +355,13 @@ class DCS(object):
         _,streamfile = self._get_query_tmp(query,submit)
         with set_temp_cache(self.cachedir):
             if is_url_in_cache(streamfile):
-                return download_file(streamfile,show_progress=DEBUG,cache=True)
+                cfile = download_file(streamfile,show_progress=DEBUG,cache=True)
+                # just in case, check if cfile exists
+                if Path(cfile).exists():
+                    return cfile
+                else:
+                    clear_download_cache(streamfile)
+                    return False
             else:
                 return False
 
@@ -597,9 +613,12 @@ class DCS(object):
         
 
     def getFlightPlan(self, search, *args, **kwargs):
+        """Get MIS dict"""
+        '''
         if kwargs.get('utctab'):
             # must get .mis file
             return self._getFlightPlan(search,*args,**kwargs)
+        '''
         '''
         if self.refresh_cache:
             # bypass DB
@@ -949,8 +968,11 @@ class DCS(object):
                                 local=None):
         '''Get names of flight in series'''
         if local:
-            local = Path(local).glob('**/*.misxml')
-            flightids = [f.stem.replace('_INIT','') for f in local]
+            lfiles = list(Path(local).glob('**/*.misxml'))
+            if not lfiles:
+                lfiles = list(Path(local).glob('**/*.mis'))
+                
+            flightids = [f.stem.replace('_INIT','') for f in lfiles]
             flightids = [f.replace('_SCI','') for f in flightids]
             return flightids
         
@@ -971,7 +993,6 @@ class DCS(object):
                        form='DIRECT',
                        local=None,
                        sql=False,
-                       utctab=False,
                        raw=False,
                        ObsBlkID=None,
                        as_table=False,
@@ -982,11 +1003,16 @@ class DCS(object):
         if local:
             try:
                 #cfile = list(Path(local).glob('%s*.mis'%flightid))[0]
-                cfile = list(Path(local).glob('**/%s*.misxml'%flightid))[0]
+                cfile = list(Path(local).glob('**/%s*.misxml'%flightid))
+                if not cfile:
+                    cfile = list(Path(local).glob('%s*.mis'%flightid))[0]
+                else:
+                    cfile = cfile[0]
             except IndexError:
                 cfile = Path(local)
             if raw:
                 return local
+            '''
             if utctab:
                 _,tab = dcsMIS.get_legs(cfile)
                 return tab
@@ -994,13 +1020,11 @@ class DCS(object):
                 #tab = Table.read(cfile,format='mis-tab')
                 #return tab
                 pass
+            '''
                 
 
         else:
-            if utctab:
-                query = (self.dcsurl/rel).with_query({'fpid':flightid,'fileType':'mis'})               
-            else:
-                query = (self.dcsurl/rel).with_query({'fpid':flightid,'fileType':'misxml'})
+            query = (self.dcsurl/rel).with_query({'fpid':flightid,'fileType':'misxml'})
             cfile = self._queryDCS(query, form)
 
         with open(cfile,'r') as f:
@@ -1014,9 +1038,11 @@ class DCS(object):
                     clear_download_cache(streamfile)
                 return None
 
+        '''
         if utctab:
             _,tab = dcsMIS.get_legs(cfile)
             return tab
+        '''
 
         miscfg = self.mcfg['MIS']
         rows = MIS.to_rows(cfile, miscfg)
@@ -1031,6 +1057,7 @@ class DCS(object):
         legs = self._query_MIS_table(search=flightid, ObsBlkID=ObsBlkID,
                                      sql=sql, raw=raw,
                                      as_table=as_table,as_json=as_json,as_pandas=as_pandas)
+
         return legs
 
 
@@ -1165,19 +1192,32 @@ class DCS(object):
         #return tab
         return cfile
     
-    def getObsBlockSearch(self,blockid,
+    def getObsBlockSearch(self,blockid=None,planid=None,
                           rel='flightPlan/observationBlockSearch.jsp',
-                          form='DIRECT'):
+                          form='DIRECT',
+                          raw=False):
         '''Download ObsBlock Leg Summary'''
-        query = (self.dcsurl/rel).with_query({'obsBlkIDs':blockid,
-                                              'resPerPage':500,
-                                              'getObsBlkInfo':'Submit'})
+        if blockid:
+            query = (self.dcsurl/rel).with_query({'obsBlkIDs':blockid,
+                                                  'resPerPage':500,
+                                                  'getObsBlkInfo':'Submit'})
+        elif planid:
+            query = (self.dcsurl/rel).with_query({'obsPlanID':planid,
+                                                  'resPerPage':500,
+                                                  'cycleID':-1,
+                                                  'instrument':'ALL',
+                                                  'fpStatus':'ALL',
+                                                  'inputEquinox':2000,
+                                                  'getObsBlkInfo':'Submit'})
+        else:
+            return None
         cfile = self._queryDCS(query,form)
 
-        #tab = Table.read(cfile,format='obssearch-tab')
-        #return tab
-        return cfile
+        if raw:
+            return cfile
         
+        tab = Table.read(cfile,format='obssearch-tab')
+        return tab
 
     def getAORSearch(self,instrument='ALL',cycle='-1',aorids='',
                      rel='observationPlanning/AORSearch.jsp',
@@ -1281,17 +1321,18 @@ if __name__ == '__main__':
     #d = DCS()
     #d.getObsDetails('06_0011')
 
-    d = DCS(database=True,refresh_cache=False)
-    d.getAORs('07_0149')
+    #d = DCS(database=True,refresh_cache=False)
+    #d.getAORs('07_0149')
 
-    exit()
-    d = DCS()
-    t = d.getAORSearch('HAWC',cycle=-1)
-    print(t)
-    print(t.colnames)
-
+    #exit()
     #d = DCS()
+    #t = d.getAORSearch('HAWC',cycle=-1)
+    #print(t)
+    #print(t.colnames)
+
+    d = DCS()
     #d.getObsBlockSearch('OB_06_0058_03')
+    print(d.getObsBlockSearch(planid='90_0072'))
 
     #d = DCS(refresh_cache=True)
     #d.getAORDetails('07_0012_1')

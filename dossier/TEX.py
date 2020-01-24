@@ -512,8 +512,6 @@ def make_overview(leg, tex=True):
     else:
         overview['header'] ={k:l.get(k,'') for k in hcols}
 
-    print(l)
-        
     # footer holds mis file info
     footer = {}
     for k in mcols:
@@ -728,31 +726,36 @@ def make_details(tab, tex=True, faor=False):
                 'Repeat','NodTime','TotalTime',
                 'ChopThrow','ChopAngle','ChopAngleCoordinate',
                 'NodThrow','NodAngle']
-        key_map = {'ObsPlanConfig':'Mode','aorID':'AORID','ObsPlanMode':'Type','ChopAngleCoordinate':'Sys','InstrumentSpectralElement1':'Band','InstrumentSpectralElement2':'Slit'}
+        key_map = {'ObsPlanConfig':'Mode','aorID':'AORID','ObsPlanMode':'Type','ChopAngleCoordinate':'Sys','InstrumentSpectralElement1':'SWC','InstrumentSpectralElement2':'LWC'}
         faor_keys = ['Nod','Dithers','Scale','IntTime','FDUR','TLOS','TLSPN',
                      'Rewind','Loop']
+        mode_map = {'ACQUISITION':'ACQ','GRISM':'GSM','IMAGING':'IMG'}
 
         for t in tab:
             sys = t['ChopAngleCoordinate']
             t['ChopAngleCoordinate'] = 'ERF' if sys == 'Sky' else 'SIRF'
 
             # shorten filter config
-            t['InstrumentSpectralElement1'] = t['InstrumentSpectralElement1'].replace('FOR_','')
+            t['InstrumentSpectralElement1'] = t['InstrumentSpectralElement1'].replace('FOR_','').replace('OPEN','')
             t['InstrumentSpectralElement2'] = t['InstrumentSpectralElement2'].replace('FOR_','')
 
             # combine filters if dual mode
             if 'DUAL' in t.get('ObsPlanConfig',''):
                 t['InstrumentSpectralElement1'] = '/'.join((t['InstrumentSpectralElement1'],
                                                             t['InstrumentSpectralElement2']))
-                t['InstrumentSpectralElement2'] = None
+                t['InstrumentSpectralElement2'] = ''
 
             # drop second element if OPEN
             elif t['InstrumentSpectralElement2'] == 'OPEN':
-                t['InstrumentSpectralElement2'] = None
+                t['InstrumentSpectralElement2'] = ''
 
             # shorten chop mode
             if t['NodType'] == 'Nod_Match_Chop':
                 t['ObsPlanMode'] = 'NMC'
+
+            # shorten config
+            t['ObsPlanConfig'] = mode_map.get(t['ObsPlanConfig'],t['ObsPlanConfig'])
+
 
         # keep certain keys
         if 'FAORfile' in tab[0]:
@@ -777,8 +780,12 @@ def make_details(tab, tex=True, faor=False):
                 detail.remove_column('Repeat')
 
         # if there are no dithers, remove dither cols
-        if not any(detail['Dithers']):
-            detail.remove_columns(('Dithers','Scale'))
+        try:
+            if not any(detail['Dithers']):
+                detail.remove_columns(('Dithers','Scale'))
+        except KeyError:
+            pass
+            
 
         # remove repeats, rewinds, or loops if all are None
         for col in ('Repeat','Rewind','Loop'):
@@ -790,13 +797,16 @@ def make_details(tab, tex=True, faor=False):
             # leave TLOS and TLSPN in there
             detail.meta['footer'] = ''
         else:
-            tl = detail['TLOS'][0]
-            span = detail['TLSPN'][0].split()[0]
-            if tl == 'inf' or np.isinf(tl):
-                tl = '--'
-            losdet = 'TLOS = %s s @ %s deg'%(tl,span)
-            detail.meta['footer'] = '%s\t\\hspace{2in}' % losdet
-            detail.remove_columns(('TLSPN','TLOS'))
+            try:
+                tl = detail['TLOS'][0]
+                span = detail['TLSPN'][0].split()[0]
+                if tl == 'inf' or np.isinf(tl):
+                    tl = '--'
+                losdet = 'TLOS = %s s @ %s deg'%(tl,span)
+                detail.meta['footer'] = '%s\t\\hspace{2in}' % losdet
+                detail.remove_columns(('TLSPN','TLOS'))
+            except KeyError:
+                pass
             
 
     else:
@@ -1122,6 +1132,7 @@ def generate_overlay(row,nod=True,dithers=True):
     if label not in FOV:
         # FORCAST
         label = label.replace('_TOT','')
+        label = label.replace('_POL','')
     
     overlay = make_box(coord,width,height,roll,TARFoffset,label=label,name=name,
                        color=COLORS[row['cidx']%len(COLORS)],split=split,aorid=row['aorID'])
@@ -1131,7 +1142,7 @@ def generate_overlay(row,nod=True,dithers=True):
         
     if row['NodType'] != 'OTFMAP':
         # we are chop/nod dithering
-        if dithers and row['DitherPattern']:
+        if dithers and row['DitherPattern'] not in (None,'None'):
             if row['ChopAngleCoordinate'] == 'Sky':
                 scale = row['DitherScale']*u.arcsec
             else:
@@ -1386,6 +1397,16 @@ def make_figures(table,fdir,reg=False,guidestars=None,irsurvey=None,savefits=Fal
 
 def make_comments(table):
     '''Generate tex for obsblk comments'''
+
+    if table[0]['aorID'] in ('99_9999_99','--'):
+        comment = table[0]['ObsBlkComment']
+        if comment in (None,'None'):
+            comment = ''
+        comment = utf8tolatex(comment)
+        comment = comment.replace('\n',r'\\')
+        comment = comment.replace(r'{\textbackslash}{\textbackslash}',r'\\')
+        return comment
+
     comments = table[0].get('ObsBlkComment','')
     if not comments:
         return ''
@@ -1534,12 +1555,18 @@ def write_tex_dossier(tables, name,title,filename,
         print('Matching faors to AORIDs...')
         tables = match_FAORs(tables,dcs)
 
+
+    #tables = [[table] if isinstance(table,dict) else table for table in tables]
+    #for table in tables:
+    #    if 'aorID' not in table[0]:
+    #        print(table)
+    #exit()
+        
     # make overview tables
     print('Generating overview...')
     over_func = partial(make_overview,tex=tex)
     overviews = ProgressBar.map(over_func,tables,multiprocess=MP)
     legnames = ['Leg %i (%s)'%(table[0]['Leg'],table[0]['Name'].replace('_','\_')) for table in tables]
-
 
     # make details tables
     print('Writing detail table...')

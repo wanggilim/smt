@@ -131,7 +131,7 @@ def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID'):
         aor (list): AOR list of dicts.
     
     """
-
+    
     if not leg[plankey]:
         # could be dead leg, or unnamed obsblk
         #    the latter scenario is common when the next cycle targets have not yet been released from science review
@@ -149,7 +149,8 @@ def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID'):
             
     else:
         aor = dcs.getAORs(leg[obsblkkey])
-
+        if aor is None:
+            aor = makeFakeAOR(leg,planid=leg[plankey],obsblk=leg[obsblkkey])
         
     if isinstance(aor,dict):
         aor = [aor]

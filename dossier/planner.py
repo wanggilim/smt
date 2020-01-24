@@ -162,6 +162,8 @@ def split_leg(utctab, interval, rofrate=None):
 
     # remove rows where ROFrt == 'N/A'--setup time
     idx = np.where(utctab['ROFrt'] == 'N/A')
+    print('CHECK N/A!!!!!')
+    raise ValueError('YOU FORGOT TO DO THIS, DUMMY')
     if idx:
         utctab.remove_rows(idx[0])
 
