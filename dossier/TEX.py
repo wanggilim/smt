@@ -1532,6 +1532,7 @@ def write_tex_dossier(tables, name,title,filename,
                       savefits=False,
                       irsurvey=None,
                       preserve_comments=False,
+                      no_figure=False,
                       tex=True,
                       writetex=True):
     '''Write dossier pages for each table in tables'''
@@ -1587,28 +1588,30 @@ def write_tex_dossier(tables, name,title,filename,
         for tab in ProgressBar(tables):
             get_pos_bundle(tab,dcs,pdir)
 
-    # get images
-    print('Generating overlays...')
-    tables = ProgressBar.map(generate_overlays,tables,multiprocess=MP)
+    if no_figure:
+        imagefiles = [None]*len(tables)
+    else:
+        # make figures
+        print('Generating overlays...')
+        tables = ProgressBar.map(generate_overlays,tables,multiprocess=MP)
 
-    # get guidestars
-    blkids = {row['ObsBlkID'] for table in tables for row in table}
-    guides = dcs.getGuideStars(list(blkids))
-    guidestars = defaultdict(list)
-    for guide in guides:
-        coord = SkyCoord(ra=guide['RA'],dec=guide['Dec'],unit=(u.deg,u.deg))
-        guide['COORD'] = coord
-        guidestars[guide['ObsBlkID']].append(guide)
+        # get guidestars
+        blkids = {row['ObsBlkID'] for table in tables for row in table}
+        guides = dcs.getGuideStars(list(blkids))
+        guidestars = defaultdict(list)
+        for guide in guides:
+            coord = SkyCoord(ra=guide['RA'],dec=guide['Dec'],unit=(u.deg,u.deg))
+            guide['COORD'] = coord
+            guidestars[guide['ObsBlkID']].append(guide)
 
     
-    # output directory for figures
-    fdir = Path(filename).parent/'figs'
-
-    # define partial function for multiprocessing
-    figfunc = partial(make_figures,fdir=fdir,reg=reg,guidestars=guidestars,
+        # output directory for figures
+        fdir = Path(filename).parent/'figs'
+        # define partial function for multiprocessing
+        figfunc = partial(make_figures,fdir=fdir,reg=reg,guidestars=guidestars,
                       irsurvey=irsurvey,savefits=savefits,fpi=fpi)
-    print('Generating figures...')
-    imagefiles = ProgressBar.map(figfunc,tables,multiprocess=MP)
+        print('Generating figures...')
+        imagefiles = ProgressBar.map(figfunc,tables,multiprocess=MP)
 
     if preserve_comments:
         cooments = copy_comments(filename)
