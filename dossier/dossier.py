@@ -334,6 +334,9 @@ def _argparse():
     parser.add_argument('-sio','--ioinstructions',
                         dest='sio',action='store_true',
                         help='Override ObsBlk comments with instrument operator instructions (HAWC+ only)')
+    parser.add_argument('-preserve','--preserve-comments',
+                        dest='preserve_comments',action='store_true',
+                        help='Preserve comments from existing .tex file, if it exists')
     #parser.add_argument('-texcmd',type=str,default='pdflatex',
     #                    help='tex compiler in $PATH (default="pdflatex")')
     parser.add_argument('-local',type=str,default=None,
@@ -368,9 +371,6 @@ def _argparse():
     parser.add_argument('-nf','--no-figure',
                         dest='no_figure',action='store_true',
                         help='Do not make figures')
-    #parser.add_argument('-preserve','--preserve-comments',
-    #                    dest='preserve_comments',action='store_true',
-    #                    help='Preserve comments from existing .tex file, if it exists')
 
     return parser
     
@@ -462,8 +462,8 @@ def main():
                                   irsurvey=args.irsurvey,
                                   savefits=args.savefits,
                                   no_figure=args.no_figure,
-                                  writetex=args.writetex)
-                                  #preserve_comments=args.preserve_comments)
+                                  writetex=args.writetex,
+                                  preserve_comments=args.preserve_comments)
         outfiles.append(output)
     
     if args.compile and len(outfiles) and args.writetex:

@@ -75,6 +75,7 @@ def INT_CONVERTER(row,cols):
         
 
 ROLL_RE = re.compile('\[([\d\.]*)\,\s?([\d\.]*)\]')
+COMMENT_RE = re.compile('\%\s\<COMMENT\slegname=Leg\s(?P<legnum>\d\d?).*\>\n(?P<comment>[\s\S]*?(?=\n\%\s\<COMMENT\/\>))')
 
 #COLORS = ['#ff0000','#00ff00','#0000ff']
 COLORS = ['#d62728','#1f77b4','#2ca02c','#ff7f0e','#9467bd','#17becf','#e377c2']
@@ -1443,14 +1444,43 @@ def hawc_sio_comments(table):
 def copy_comments(filename):
     """Return comments from .tex file, if they exist"""
     # first find existing .tex file
-    if Path(filename).exists():
+    filename = Path(filename)
+    if filename.exists():
         with open(filename,'r') as f:
             text = f.read()
     else:
+        # try going back to one older version
+        parents = [str(p) for p in filename.parents]
+        top = parents[-2]
+        if top.split('_')[-1][0] == 'v':
+            # this is versioned
+            version = top[-1]
+            name = parents[-3].split('/')[-1]
+            try:
+                version = int(version)
+                prev_version = version - 1
+            except ValueError:
+                prev_version = chr(ord(version) - 1)
+            newparent = '%s%s'%(top[:-1],prev_version)
+            newpath = Path(newparent).joinpath(name)/filename.name
+
+            if Path(newpath).exists():
+                filename = Path(newpath)
+                with open(filename,'r') as f:
+                    text = f.read()
+            else:
+                return None
+            
+        else:
+            return None
+    
+    if r'% <COMMENT legname' not in text:
         return None
 
-    if r'%# <COMMENT' not in text:
-        return None
+    print('Copying comments from %s' % filename)
+    comments = COMMENT_RE.findall(text)
+    comments = [x[1] for x in comments]
+    return comments
 
 
 def match_FAORs(tables,dcs):
@@ -1614,8 +1644,9 @@ def write_tex_dossier(tables, name,title,filename,
         imagefiles = ProgressBar.map(figfunc,tables,multiprocess=MP)
 
     if preserve_comments:
-        cooments = copy_comments(filename)
-                
+        oldcomments = copy_comments(filename)
+        if oldcomments is None:
+            oldcomments = ['']*len(tables)
 
     if sio:
         print('Generating comments...')
@@ -1623,6 +1654,9 @@ def write_tex_dossier(tables, name,title,filename,
     else:
         print('Gathering comments...')
         comments = ProgressBar.map(make_comments,tables,multiprocess=MP)
+
+    # merge old and new
+    comments = [old if old else new for old,new in zip(oldcomments,comments)]
 
     # finally, render latex template
     render = {'flightName':name.replace('_','\_'),
