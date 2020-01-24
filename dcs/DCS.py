@@ -10,7 +10,7 @@ from collections import deque
 import tempfile
 from astropy.utils.data import download_file, clear_download_cache, is_url_in_cache
 from astropy.config import set_temp_cache,get_cache_dir
-from astropy.table import Table,Column
+from astropy.table import Table,Column,vstack,join
 import datetime
 import time
 import uuid
@@ -74,8 +74,6 @@ def _is_ObsBlkID(idstr):
     if 'OB' in idstr and len(idstr.split('_')) == 4:
         return True
     return False
-
-
 
 
 class DCS(object):
@@ -318,6 +316,25 @@ class DCS(object):
             else:
                 return False
 
+
+    def _add_missing_obsblks(self,rows):
+        """If ObsBlkID is missing from AOR rows
+        (usually, very old programs), try updating from DCS"""
+        aor_plan_blk = [(row['aorID'],row['planID'],row['ObsBlkID']) \
+                        for row in rows]
+        if any([not x[-1] for x in aor_plan_blk]):
+            # missing an obsblk
+            plans = {x[1] for x in aor_plan_blk}
+            # query for obsblk table
+            obstabs = [self.getObsBlockSearch(planid=p) for p in plans]
+            obstabs = vstack(obstabs)
+            # make lookup
+            blkdict = dict(zip(obstabs['aorID'],obstabs['ObsBlkID']))
+            # add blkid to rows
+            for row in rows:
+                row['ObsBlkID'] = blkdict.get(row['aorID'],row['ObsBlkID'])
+        return rows
+            
     def _get_query_tmp(self,query, submit=None, maxlen=100):
         '''Return tmpfile name and file:// prefix version for caching'''
         tmpdir = tempfile.gettempdir()
@@ -934,6 +951,7 @@ class DCS(object):
         guidecfg = self.mcfg['GUIDE']
         
         rows = AOR.to_rows(cfile, aorcfg)
+        rows = self._add_missing_obsblks(rows)
         if rows and insert:
             AOR.replace_rows(self.db, rows)
 

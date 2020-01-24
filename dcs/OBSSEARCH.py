@@ -45,6 +45,10 @@ def read_obssearch_page(filename):
     table.remove_column('AOR ID [Target]')
     table.add_columns((aorids,targets),indexes=(2,3))
 
+    table.rename_column('ObsPlan ID','planID')
+    table.rename_column('ObsBlock ID','ObsBlkID')
+    table.rename_column('AOR ID','aorID')
+
     return table
 
 # Register Table class reader

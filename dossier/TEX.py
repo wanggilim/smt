@@ -104,11 +104,12 @@ TARFOFFSET = {'HAWC_PLUS':3*u.deg,
               'FORCAST':40.6*u.deg}
 
 INST_REPL = {'University':'Univ','Universitaet':'Univ',
-             'Department':'Dept','and':'\&','und':'\&',
+             'Department':'Dept',' and':' \&',' und':' \&',
              'Institute':'Inst','Institut':'Inst',
-             'fuer ':'f. ','der ':'d. ',
-             'Astrophysics':'Ast.','Astrophysik':'Ast.',
-             'Dr. ':'','Mr. ':'','Prof ':'','Prof. ':'',
+             'fuer ':'f.\ ','der ':'d.\ ',
+             'Astrophysics':'Ast','Astrophysik':'Ast',
+             'Dr. ':'','Mr. ':'','Ms. ':'','Mrs. ':'',
+             'Prof ':'','Prof. ':'',
              '. ':'.\ '}
 
 HAWC_SIO = {
