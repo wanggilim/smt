@@ -992,6 +992,7 @@ class DCS(object):
                 
             flightids = [f.stem.replace('_INIT','') for f in lfiles]
             flightids = [f.replace('_SCI','') for f in flightids]
+            flightids = [f.replace('_MOPS','') for f in flightids]
             return flightids
         
         submit['value'] = series
