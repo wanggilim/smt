@@ -29,10 +29,12 @@ ROF_RE = re.compile('\[([\+\-\d\.]*)\,\s?([\+\-\d\.]*)\]')
 VALIDSTR = ('force','yes','on','true')
 
 
-def waypts_to_table(waypts):
+def get_waypt_table(leg):
     """Convert list of dict waypts into table"""
-    waypts = json.loads(waypts)
+    waypts = json.loads(leg['WAYPTS'])
     table = Table(rows=waypts,names=waypts[0].keys())
+    table.meta.update(**leg)
+    del table.meta['WAYPTS']
     return table
 
 
@@ -174,8 +176,8 @@ def split_leg(utctab, interval, rofrate=None):
     if idx:
         utctab.remove_rows(idx[0])
 
-    date = utctab.meta['summary']['Takeoff'].split()[0]
-    times = Time([Time.strptime(' '.join((t,date)),'%H:%M:%S %Y-%b-%d') for t in utctab['UTC']])
+    date = utctab.meta['DepartureTime'].strftime('%Y-%m-%d')
+    times = Time([Time.strptime(' '.join((t,date)),'%H:%M:%S %Y-%m-%d') for t in utctab['UTC']])
 
     # set start time to closest 15 min interval
     inittime = round_time(times[0])
@@ -434,7 +436,7 @@ def plan_obsblock(obsblock,mistab,
     print('Leg%02i'%leg['Leg'])
     print('-----')
     aor = AOR.as_table(aor)
-    aor.pprint()
+    #aor.pprint()
 
     aor['FlightName'] = [mistab['FlightName'][0]]*len(aor)
     aor['FlightPlan'] = [mistab['FlightPlan'][0]]*len(aor)
@@ -561,7 +563,7 @@ def plan_obsblock(obsblock,mistab,
         # chainmap checks each section for values, starting with aorid
         chmap = CMap(cfg,aorsec,**kwargs)
         '''
-        print(r['ObsBlkID'])
+        #print(r['ObsBlkID'])
         chmap = CMap.from_AOR_dict(cfg,r)
         
         
@@ -1050,7 +1052,7 @@ def main():
                 interval = 0
 
             # calculate interval start times
-            utctab = waypts_to_table(leg['WAYPTS'])
+            utctab = get_waypt_table(leg)
             #exit()
             #utctab = list(filter(lambda x:x.meta['Leg'] == leg['Leg'], utctabs))[0]
             utctab.pprint()
