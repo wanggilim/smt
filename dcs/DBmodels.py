@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-from peewee import Model,SqliteDatabase,TextField,IntegerField,DoubleField,ForeignKeyField,BooleanField
+from peewee import Model,SqliteDatabase,TextField,IntegerField,DoubleField,ForeignKeyField,BooleanField,TimeField,DateTimeField
 import json
 from pathlib import Path
 from functools import reduce,partial
@@ -21,8 +21,10 @@ from collections import deque
 from pandas import read_html, concat, DataFrame
 import numpy as np
 import re
+import datetime
 
-DB_TYPE_MAP = {'int':IntegerField,'float':DoubleField,'str':TextField,'bool':BooleanField,'foreign':ForeignKeyField}
+DB_TYPE_MAP = {'int':IntegerField,'float':DoubleField,'str':TextField,'bool':BooleanField,
+               'foreign':ForeignKeyField,'time':TimeField,'datetime':DateTimeField}
 STR_TYPE_MAP = {'int':int,'float':float,'str':str,'bool':bool}
 HTMLPARSER = 'lxml'
 
@@ -59,7 +61,7 @@ def generate_field(key, units, options):
     if ftype == 'foreign':
         model = globals()[opt['model']]
         opt['model'] = model
-    
+        
     return field(**opt)
 
 
@@ -310,6 +312,27 @@ def MIS_to_rows(filename, miscfg):
 
     # Get flight info
     meta = {"FlightPlan":mis['id'],"Series":'_'.join(mis['id'].split('_')[0:-1])}
+
+    # get additional flight header info
+    mkeys = json.loads(miscfg['meta_keys'])
+    exkeys = ('FlightPlan','Leg')  # ignore these
+    for mkey in mkeys:
+        if mkey in exkeys:
+            continue
+        if 'Sun' in mkey:
+            meta[mkey] = mis.sunsetrise.select_one(mkey).text
+        else:
+            meta[mkey] = mis[mkey.lower()]
+
+    # format datetime keys
+    dunits = json.loads(miscfg['data_units'])
+    for k,v in dunits.items():
+        if v == 'datetime':
+            try:
+                dt = datetime.datetime.strptime(meta[k], '%Y-%m-%dT%H:%M:%SZ')
+            except ValueError:
+                dt = datetime.datetime.strptime(meta[k], '%Y-%b-%d %H:%M:%S %Z')
+            meta[k] = dt.strftime('%Y-%m-%d %H:%M:%S')
 
     # save filename
     meta['FILENAME'] = str(Path(filename).resolve())
@@ -604,6 +627,12 @@ if __name__ == '__main__':
     from configparser import ConfigParser
     c = ConfigParser()
     c.read('DBmodels.cfg')
+
+    misfile = '/home/msgordo1/Downloads/202001_HA_JONAS_WX12.misxml'
+    rows = MIS_to_rows(misfile,c['MIS'])
+    print(rows)
+
+    exit()
 
     aorfile = '/home/msgordo1/.astropy/cache/DCS/astropy/download/py3/c8e3b8507f078fef10b677a8813bb058'
     aors = AOR_to_rows(aorfile,c['AOR'])

@@ -1647,6 +1647,8 @@ def write_tex_dossier(tables, name,title,filename,
         oldcomments = copy_comments(filename)
         if oldcomments is None:
             oldcomments = ['']*len(tables)
+    else:
+        oldcomments = ['']*len(tables)
 
     if sio:
         print('Generating comments...')

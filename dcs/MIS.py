@@ -1,5 +1,6 @@
 #! /usr/bin/env python
 import re
+import datetime
 from astropy.table import Table,Column
 from astropy.io import registry
 import numpy as np
@@ -24,6 +25,7 @@ def rate_repl(match):
 
 TOP_META_RE = re.compile('Filename:\s(.*)\sSaved:\s(.*)')
 MISSION_META_RE = re.compile('Mission\sSummary.*(Flight.+?)Leg\s1', re.S)
+TOP_AIRPORT2_RE = re.compile('Landing:.*Airport:\s(.*)')
 
 SUA_RE = re.compile('\*\**\s?Potential\sSUA.*\nZone.*', re.S)
 
@@ -195,6 +197,8 @@ def get_legs(filename):
     summary = extract_keys(mission)
     summary.update(**top)
     summary['summary'] = mission
+    # get second airport
+    summary['Airport2'] = TOP_AIRPORT2_RE.findall(mission)[0]
     
     # add metadata to tables
     for tab,meta,raw in zip(utc_tabs,leg_meta,legs):
@@ -217,11 +221,6 @@ def MIS_table_to_DB(table,miscfg):
     meta_legs = filter(lambda k: 'Leg' in k,table.meta.keys())
     meta_legs = filter(lambda k: k != 'Legs', meta_legs)
     meta_legs = [table.meta.get(k) for k in meta_legs]
-    #meta_legs = list(filter(lambda leg: leg or leg is not None or len(leg), meta_legs))
-
-    #print(meta_legs[0])
-    #print(meta_legs[-1])
-    #exit()
 
     drows = map(lambda leg: {k:leg.get(v) for k,v in legmap.items()}, meta_legs)
     drows = list(filter(lambda row: row['Leg'] is not None,drows))
@@ -256,12 +255,22 @@ def MIS_table_to_DB(table,miscfg):
         d['TIMESTAMP'] = ts
         d.update(a)
 
+    # pull additional info from meta
+    legacy_meta = json.loads(miscfg['legacy_meta'])
+    emeta = {k:table.meta.get(v) for k,v in legacy_meta.items()}
+    for tkey in ('DepartureTime','ArrivalTime'):
+        # format datetime
+        emeta[tkey] = datetime.datetime.strptime(emeta[tkey],'%Y-%b-%d %H:%M:%S %Z').strftime('%Y-%m-%d %H:%M:%S')
+    for d in drows:
+        d.update(**emeta)
+
+
     # get utctab
     _,utctabs = get_legs(filename)
     utctabs = map(lambda utctab: utctab.to_pandas().to_dict(orient='records'), utctabs)
     for d,utc in zip(drows,utctabs):
         d['WAYPTS'] = json.dumps(utc) if utc else None
-        
+
     return drows
     
 
@@ -340,4 +349,3 @@ if __name__ == '__main__':
                      format='mis-tab')
     tab.pprint()
     rows = MIS_table_to_DB(tab, cfg['MIS'])
-

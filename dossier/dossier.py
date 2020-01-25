@@ -364,7 +364,7 @@ def _argparse():
                         dest='irsurvey',
                         default=None,
                         help='Save .fits files of specified IR survey. Requires --save-fits options.')
-    parser.add_argument('-mcfg',type=str,default=mcfg_DEFAULT,help='Model config file (default=dcs/DBmodels.cfg)')
+    parser.add_argument('-mcfg',type=str,default=mcfg_DEFAULT,help='Model config file (default=/library/path/DBmodels.cfg)')
     parser.add_argument('-t','--template',
                         dest='template',type=str,default=tex_DEFAULT,
                         help='Template file (default=dossier/template.tex)')
