@@ -1626,7 +1626,8 @@ def write_tex_dossier(tables, name,title,filename,
         tables = ProgressBar.map(generate_overlays,tables,multiprocess=MP)
 
         # get guidestars
-        blkids = {row['ObsBlkID'] for table in tables for row in table}
+        blkids = {row['ObsBlkID'] for table in tables for row in table \
+                  if row['ObsBlkID'] not in ('--','None',None)}
         guides = dcs.getGuideStars(list(blkids))
         guidestars = defaultdict(list)
         for guide in guides:
