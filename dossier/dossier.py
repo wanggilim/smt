@@ -5,7 +5,7 @@
 ## SOFIA Dossier Tool
 ## Author: Michael S. Gordon (mgordon@sofia.usra.edu)
 ##
-## version: 1.2.1
+## version: 1.2.9
 ##
 ######################################################
 from dcs import DCS
@@ -164,6 +164,43 @@ def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID'):
 
     return aor
 
+
+def parse_flightid(flightid, dcs, local):
+    """Return flightid(s) and name(s) based on input query"""
+    flightid = flightid.upper()
+
+    # check for alt status
+    alt = 'ALT' in flightid
+    if alt:
+        flightid = flightid.replace('_ALT','')
+
+    # flight name/series
+    split = flightid.split('_')
+    if len(split) == 3:
+        # single flight
+        flightids = [flightid]
+        if alt:
+            flightids = ['%s_ALT'%flightids[0]]
+        names = [split[-1]]
+        if alt:
+            names = ['%s_ALT'%names[0]]
+        series = '_'.join(split[:-1])
+    
+    elif len(split) == 2:
+        # series, get flightids from dcs
+        flightids = dcs.getFlightSeries(flightid, get_ids=True, local=local)
+        names = (f.split('_') for f in flightids)
+        names = ['_'.join(name[-2:]) if 'ALT' in name else name[-1] for name in names]
+        series = flightid
+    else:
+        raise ValueError('Flight ID "%s" not understood'%flightid)
+
+    if alt:
+        flightids = list(filter(lambda x: '_ALT' in x,flightids))
+        names = list(filter(lambda x: '_ALT' in x,names))
+
+    return flightids,names
+    
 
 def generate_dossier(flightid, odir,
                      dcs=None, refresh_cache=False,
@@ -386,38 +423,8 @@ def main():
     dcs = DCS.DCS(refresh_cache=args.refresh_cache,modelcfg=mcfg)
     _register_models(dcs)
 
-    args.flightid = args.flightid.upper()
-
-    # check for alt status
-    alt = 'ALT' in args.flightid
-    if alt:
-        args.flightid = args.flightid.replace('_ALT','')
-
-    # flight name/series
-    split = args.flightid.split('_')
-    if len(split) == 3:
-        # single flight
-        flightids = [args.flightid]
-        if alt:
-            flightids = ['%s_ALT'%flightids[0]]
-        names = [split[-1]]
-        if alt:
-            names = ['%s_ALT'%names[0]]
-        series = '_'.join(split[:-1])
-    
-    elif len(split) == 2:
-        # series, get flightids from dcs
-        flightids = dcs.getFlightSeries(args.flightid, get_ids=True, local=args.local)
-        names = (f.split('_') for f in flightids)
-        names = ['_'.join(name[-2:]) if 'ALT' in name else name[-1] for name in names]
-        series = args.flightid
-    else:
-        raise ValueError('Flight ID "%s" not understood'%args.flightid)
-
-    if alt:
-        flightids = list(filter(lambda x: '_ALT' in x,flightids))
-        names = list(filter(lambda x: '_ALT' in x,names))
-
+    # parse input flightid query
+    flightids, names = parse_flightid(args.flightid, dcs, local=args.local)
 
     if args.o:
         odir = Path(args.o)
