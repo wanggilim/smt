@@ -47,6 +47,9 @@ def _as_table(rows):
         columns = rows[0].keys()
     return Table(data=rows,names=columns)
 
+def _as_json(rows):
+    return json.dumps(rows,default=str)
+
 def generate_field(key, units, options):
     '''Generate database Field objects for each key'''
     # get field type, default to string
@@ -320,14 +323,19 @@ def MIS_to_rows(filename, miscfg):
         if mkey in exkeys:
             continue
         if 'Sun' in mkey:
-            meta[mkey] = mis.sunsetrise.select_one(mkey).text
+            try:
+                meta[mkey] = mis.sunsetrise.select_one(mkey).text
+            except AttributeError:
+                meta[mkey] = None
         else:
-            meta[mkey] = mis[mkey.lower()]
+            meta[mkey] = mis.get(mkey.lower())
 
     # format datetime keys
     dunits = json.loads(miscfg['data_units'])
     for k,v in dunits.items():
         if v == 'datetime':
+            if meta[k] is None:
+                continue
             try:
                 dt = datetime.datetime.strptime(meta[k], '%Y-%m-%dT%H:%M:%SZ')
             except ValueError:
@@ -608,7 +616,8 @@ def ModelFactory(name, config, db, register=True):
 
     # add rendering functions
     cls.as_pandas = _as_pandas
-    cls.as_json = lambda x: json.dumps(x)
+    #cls.as_json = lambda x: json.dumps(x)
+    cls.as_json = _as_json
     cls.as_table = _as_table
     
     return cls
