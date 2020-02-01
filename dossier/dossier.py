@@ -165,7 +165,7 @@ def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID'):
     return aor
 
 
-def parse_flightid(flightid, dcs, local):
+def parse_flightid(flightid, dcs, local=False):
     """Return flightid(s) and name(s) based on input query"""
     flightid = flightid.upper()
 
@@ -199,7 +199,7 @@ def parse_flightid(flightid, dcs, local):
         flightids = list(filter(lambda x: '_ALT' in x,flightids))
         names = list(filter(lambda x: '_ALT' in x,names))
 
-    return flightids,names
+    return flightids,names,series
     
 
 def generate_dossier(flightid, odir,
@@ -424,7 +424,7 @@ def main():
     _register_models(dcs)
 
     # parse input flightid query
-    flightids, names = parse_flightid(args.flightid, dcs, local=args.local)
+    flightids, names, series = parse_flightid(args.flightid, dcs, local=args.local)
 
     if args.o:
         odir = Path(args.o)
