@@ -29,6 +29,15 @@ ROF_RE = re.compile('\[([\+\-\d\.]*)\,\s?([\+\-\d\.]*)\]')
 VALIDSTR = ('force','yes','on','true')
 
 
+def get_waypt_table(leg):
+    """Convert list of dict waypts into table"""
+    waypts = json.loads(leg['WAYPTS'])
+    table = Table(rows=waypts,names=waypts[0].keys())
+    table.meta.update(**leg)
+    del table.meta['WAYPTS']
+    return table
+
+
 # simple Table wrapper for the sole purpose of bolding the first line
 class FTable(Table):
 
@@ -162,11 +171,13 @@ def split_leg(utctab, interval, rofrate=None):
 
     # remove rows where ROFrt == 'N/A'--setup time
     idx = np.where(utctab['ROFrt'] == 'N/A')
+    #print('CHECK N/A!!!!!')
+    #raise ValueError('YOU FORGOT TO DO THIS, DUMMY')
     if idx:
         utctab.remove_rows(idx[0])
 
-    date = utctab.meta['summary']['Takeoff'].split()[0]
-    times = Time([Time.strptime(' '.join((t,date)),'%H:%M:%S %Y-%b-%d') for t in utctab['UTC']])
+    date = utctab.meta['DepartureTime'].strftime('%Y-%m-%d')
+    times = Time([Time.strptime(' '.join((t,date)),'%H:%M:%S %Y-%m-%d') for t in utctab['UTC']])
 
     # set start time to closest 15 min interval
     inittime = round_time(times[0])
@@ -425,7 +436,7 @@ def plan_obsblock(obsblock,mistab,
     print('Leg%02i'%leg['Leg'])
     print('-----')
     aor = AOR.as_table(aor)
-    aor.pprint()
+    #aor.pprint()
 
     aor['FlightName'] = [mistab['FlightName'][0]]*len(aor)
     aor['FlightPlan'] = [mistab['FlightPlan'][0]]*len(aor)
@@ -552,7 +563,7 @@ def plan_obsblock(obsblock,mistab,
         # chainmap checks each section for values, starting with aorid
         chmap = CMap(cfg,aorsec,**kwargs)
         '''
-        print(r['ObsBlkID'])
+        #print(r['ObsBlkID'])
         chmap = CMap.from_AOR_dict(cfg,r)
         
         
@@ -859,11 +870,11 @@ def _argparse():
                         help='Specify local directory for .mis files, else query DCS')
     parser.add_argument('-cfg',type=str,default=None,
                         help='Specify .cfg file for additional options')
-    parser.add_argument('-mcfg',type=str,default=mcfg_DEFAULT,help='Model config file (default=dcs/DBmodels.cfg)')
+    parser.add_argument('-mcfg',type=str,default=mcfg_DEFAULT,help='Model config file (default=/library/path/DBmodels.cfg)')
     parser.add_argument('--comment-out','-co',
                         dest='comment',action='store_true',help='If specified, leave unplanned run blocks in FAORs rather than delete them')
-    parser.add_argument('--fixed',
-                        dest='fixed',action='store_true',help='If specified, do not iterate, and use initial values.')
+    parser.add_argument('--fixed',dest='fixed',
+                        action='store_true',help='If specified, do not iterate, and use initial values.')
     parser.add_argument('-noddwell',type=float,default=None,help='Specify noddwell for all legs')
     parser.add_argument('-loops',type=int,default=None,help='Specify loops for all legs')
     parser.add_argument('-repeats',type=int,default=None,help='Specify repeats for all legs')
@@ -950,10 +961,6 @@ def main():
     for fid,odir in zip(flightids,odirs):
         mis = dcs.getFlightPlan(fid, local=args.local)
 
-        # get utctab for dividing legs into intervals
-        utctabs = dcs.getFlightPlan(fid, local=args.local, utctab=True)
-        utctabs = list(filter(lambda x:'Leg' in x.meta, utctabs))
-
         # generate chainmap to prioritize overrides from command line
         '''
         if args.leg is None:
@@ -972,9 +979,9 @@ def main():
         '''
         #chmap = CMap(cfg,keys,**cmdargs)
         #print(chmap)
-        
         '''
         # if args.leg, only look for 'interval' in cfg
+        # get utctab for dividing legs into intervals
         if args.leg is not None:
             if args.interval is None:
                 key = '_'.join(('Leg%02d'%args.leg,fid))
@@ -990,13 +997,15 @@ def main():
             keys = ['_'.join(('Leg%02d'%leg,fid)) for leg in mis['Leg'] if leg]
             if any([key in cfg for key in keys]):
                 getUTC = True
+        
+        
 
         # get utctab for dividing legs into intervals
-        if args.interval:
-            if args.leg is None:
-                raise RuntimeError('leg must be specified for interval leg splitting.')
-            utctabs = dcs.getFlightPlan(fid, local=args.local, utctab=True)
-            utctabs = list(filter(lambda x:'Leg' in x.meta, utctabs))
+        #if args.interval:
+        #    if args.leg is None:
+        #        raise RuntimeError('leg must be specified for interval leg splitting.')
+        #    utctabs = dcs.getFlightPlan(fid, local=args.local, utctab=True)
+        #    utctabs = list(filter(lambda x:'Leg' in x.meta, utctabs))
         '''
 
         # process each leg/obsblock
@@ -1043,7 +1052,9 @@ def main():
                 interval = 0
 
             # calculate interval start times
-            utctab = list(filter(lambda x:x.meta['Leg'] == leg['Leg'], utctabs))[0]
+            utctab = get_waypt_table(leg)
+            #exit()
+            #utctab = list(filter(lambda x:x.meta['Leg'] == leg['Leg'], utctabs))[0]
             utctab.pprint()
             iTab = split_leg(utctab, interval, rofrate=rofrate)
 

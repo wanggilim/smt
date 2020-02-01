@@ -75,6 +75,7 @@ def INT_CONVERTER(row,cols):
         
 
 ROLL_RE = re.compile('\[([\d\.]*)\,\s?([\d\.]*)\]')
+COMMENT_RE = re.compile('\%\s\<COMMENT\slegname=Leg\s(?P<legnum>\d\d?).*\>\n(?P<comment>[\s\S]*?(?=\n\%\s\<COMMENT\/\>))')
 
 #COLORS = ['#ff0000','#00ff00','#0000ff']
 COLORS = ['#d62728','#1f77b4','#2ca02c','#ff7f0e','#9467bd','#17becf','#e377c2']
@@ -104,11 +105,12 @@ TARFOFFSET = {'HAWC_PLUS':3*u.deg,
               'FORCAST':40.6*u.deg}
 
 INST_REPL = {'University':'Univ','Universitaet':'Univ',
-             'Department':'Dept','and':'\&','und':'\&',
+             'Department':'Dept',' and':' \&',' und':' \&',
              'Institute':'Inst','Institut':'Inst',
-             'fuer ':'f. ','der ':'d. ',
-             'Astrophysics':'Ast.','Astrophysik':'Ast.',
-             'Dr. ':'','Mr. ':'','Prof ':'','Prof. ':'',
+             'fuer ':'f.\ ','der ':'d.\ ',
+             'Astrophysics':'Ast','Astrophysik':'Ast',
+             'Dr. ':'','Mr. ':'','Ms. ':'','Mrs. ':'',
+             'Prof ':'','Prof. ':'',
              '. ':'.\ '}
 
 HAWC_SIO = {
@@ -512,8 +514,6 @@ def make_overview(leg, tex=True):
     else:
         overview['header'] ={k:l.get(k,'') for k in hcols}
 
-    print(l)
-        
     # footer holds mis file info
     footer = {}
     for k in mcols:
@@ -728,31 +728,36 @@ def make_details(tab, tex=True, faor=False):
                 'Repeat','NodTime','TotalTime',
                 'ChopThrow','ChopAngle','ChopAngleCoordinate',
                 'NodThrow','NodAngle']
-        key_map = {'ObsPlanConfig':'Mode','aorID':'AORID','ObsPlanMode':'Type','ChopAngleCoordinate':'Sys','InstrumentSpectralElement1':'Band','InstrumentSpectralElement2':'Slit'}
+        key_map = {'ObsPlanConfig':'Mode','aorID':'AORID','ObsPlanMode':'Type','ChopAngleCoordinate':'Sys','InstrumentSpectralElement1':'SWC','InstrumentSpectralElement2':'LWC'}
         faor_keys = ['Nod','Dithers','Scale','IntTime','FDUR','TLOS','TLSPN',
                      'Rewind','Loop']
+        mode_map = {'ACQUISITION':'ACQ','GRISM':'GSM','IMAGING':'IMG'}
 
         for t in tab:
             sys = t['ChopAngleCoordinate']
             t['ChopAngleCoordinate'] = 'ERF' if sys == 'Sky' else 'SIRF'
 
             # shorten filter config
-            t['InstrumentSpectralElement1'] = t['InstrumentSpectralElement1'].replace('FOR_','')
+            t['InstrumentSpectralElement1'] = t['InstrumentSpectralElement1'].replace('FOR_','').replace('OPEN','')
             t['InstrumentSpectralElement2'] = t['InstrumentSpectralElement2'].replace('FOR_','')
 
             # combine filters if dual mode
             if 'DUAL' in t.get('ObsPlanConfig',''):
                 t['InstrumentSpectralElement1'] = '/'.join((t['InstrumentSpectralElement1'],
                                                             t['InstrumentSpectralElement2']))
-                t['InstrumentSpectralElement2'] = None
+                t['InstrumentSpectralElement2'] = ''
 
             # drop second element if OPEN
             elif t['InstrumentSpectralElement2'] == 'OPEN':
-                t['InstrumentSpectralElement2'] = None
+                t['InstrumentSpectralElement2'] = ''
 
             # shorten chop mode
             if t['NodType'] == 'Nod_Match_Chop':
                 t['ObsPlanMode'] = 'NMC'
+
+            # shorten config
+            t['ObsPlanConfig'] = mode_map.get(t['ObsPlanConfig'],t['ObsPlanConfig'])
+
 
         # keep certain keys
         if 'FAORfile' in tab[0]:
@@ -777,8 +782,12 @@ def make_details(tab, tex=True, faor=False):
                 detail.remove_column('Repeat')
 
         # if there are no dithers, remove dither cols
-        if not any(detail['Dithers']):
-            detail.remove_columns(('Dithers','Scale'))
+        try:
+            if not any(detail['Dithers']):
+                detail.remove_columns(('Dithers','Scale'))
+        except KeyError:
+            pass
+            
 
         # remove repeats, rewinds, or loops if all are None
         for col in ('Repeat','Rewind','Loop'):
@@ -790,13 +799,16 @@ def make_details(tab, tex=True, faor=False):
             # leave TLOS and TLSPN in there
             detail.meta['footer'] = ''
         else:
-            tl = detail['TLOS'][0]
-            span = detail['TLSPN'][0].split()[0]
-            if tl == 'inf' or np.isinf(tl):
-                tl = '--'
-            losdet = 'TLOS = %s s @ %s deg'%(tl,span)
-            detail.meta['footer'] = '%s\t\\hspace{2in}' % losdet
-            detail.remove_columns(('TLSPN','TLOS'))
+            try:
+                tl = detail['TLOS'][0]
+                span = detail['TLSPN'][0].split()[0]
+                if tl == 'inf' or np.isinf(tl):
+                    tl = '--'
+                losdet = 'TLOS = %s s @ %s deg'%(tl,span)
+                detail.meta['footer'] = '%s\t\\hspace{2in}' % losdet
+                detail.remove_columns(('TLSPN','TLOS'))
+            except KeyError:
+                pass
             
 
     else:
@@ -1122,6 +1134,7 @@ def generate_overlay(row,nod=True,dithers=True):
     if label not in FOV:
         # FORCAST
         label = label.replace('_TOT','')
+        label = label.replace('_POL','')
     
     overlay = make_box(coord,width,height,roll,TARFoffset,label=label,name=name,
                        color=COLORS[row['cidx']%len(COLORS)],split=split,aorid=row['aorID'])
@@ -1131,7 +1144,7 @@ def generate_overlay(row,nod=True,dithers=True):
         
     if row['NodType'] != 'OTFMAP':
         # we are chop/nod dithering
-        if dithers and row['DitherPattern']:
+        if dithers and row['DitherPattern'] not in (None,'None'):
             if row['ChopAngleCoordinate'] == 'Sky':
                 scale = row['DitherScale']*u.arcsec
             else:
@@ -1386,6 +1399,16 @@ def make_figures(table,fdir,reg=False,guidestars=None,irsurvey=None,savefits=Fal
 
 def make_comments(table):
     '''Generate tex for obsblk comments'''
+
+    if table[0]['aorID'] in ('99_9999_99','--'):
+        comment = table[0]['ObsBlkComment']
+        if comment in (None,'None'):
+            comment = ''
+        comment = utf8tolatex(comment)
+        comment = comment.replace('\n',r'\\')
+        comment = comment.replace(r'{\textbackslash}{\textbackslash}',r'\\')
+        return comment
+
     comments = table[0].get('ObsBlkComment','')
     if not comments:
         return ''
@@ -1421,14 +1444,43 @@ def hawc_sio_comments(table):
 def copy_comments(filename):
     """Return comments from .tex file, if they exist"""
     # first find existing .tex file
-    if Path(filename).exists():
+    filename = Path(filename)
+    if filename.exists():
         with open(filename,'r') as f:
             text = f.read()
     else:
+        # try going back to one older version
+        parents = [str(p) for p in filename.parents]
+        top = parents[-2]
+        if top.split('_')[-1][0] == 'v':
+            # this is versioned
+            version = top[-1]
+            name = parents[-3].split('/')[-1]
+            try:
+                version = int(version)
+                prev_version = version - 1
+            except ValueError:
+                prev_version = chr(ord(version) - 1)
+            newparent = '%s%s'%(top[:-1],prev_version)
+            newpath = Path(newparent).joinpath(name)/filename.name
+
+            if Path(newpath).exists():
+                filename = Path(newpath)
+                with open(filename,'r') as f:
+                    text = f.read()
+            else:
+                return None
+            
+        else:
+            return None
+    
+    if r'% <COMMENT legname' not in text:
         return None
 
-    if r'%# <COMMENT' not in text:
-        return None
+    print('Copying comments from %s' % filename)
+    comments = COMMENT_RE.findall(text)
+    comments = [x[1] for x in comments]
+    return comments
 
 
 def match_FAORs(tables,dcs):
@@ -1510,6 +1562,7 @@ def write_tex_dossier(tables, name,title,filename,
                       savefits=False,
                       irsurvey=None,
                       preserve_comments=False,
+                      no_figure=False,
                       tex=True,
                       writetex=True):
     '''Write dossier pages for each table in tables'''
@@ -1534,12 +1587,18 @@ def write_tex_dossier(tables, name,title,filename,
         print('Matching faors to AORIDs...')
         tables = match_FAORs(tables,dcs)
 
+
+    #tables = [[table] if isinstance(table,dict) else table for table in tables]
+    #for table in tables:
+    #    if 'aorID' not in table[0]:
+    #        print(table)
+    #exit()
+        
     # make overview tables
     print('Generating overview...')
     over_func = partial(make_overview,tex=tex)
     overviews = ProgressBar.map(over_func,tables,multiprocess=MP)
     legnames = ['Leg %i (%s)'%(table[0]['Leg'],table[0]['Name'].replace('_','\_')) for table in tables]
-
 
     # make details tables
     print('Writing detail table...')
@@ -1559,32 +1618,38 @@ def write_tex_dossier(tables, name,title,filename,
         for tab in ProgressBar(tables):
             get_pos_bundle(tab,dcs,pdir)
 
-    # get images
-    print('Generating overlays...')
-    tables = ProgressBar.map(generate_overlays,tables,multiprocess=MP)
+    if no_figure:
+        imagefiles = [None]*len(tables)
+    else:
+        # make figures
+        print('Generating overlays...')
+        tables = ProgressBar.map(generate_overlays,tables,multiprocess=MP)
 
-    # get guidestars
-    blkids = {row['ObsBlkID'] for table in tables for row in table}
-    guides = dcs.getGuideStars(list(blkids))
-    guidestars = defaultdict(list)
-    for guide in guides:
-        coord = SkyCoord(ra=guide['RA'],dec=guide['Dec'],unit=(u.deg,u.deg))
-        guide['COORD'] = coord
-        guidestars[guide['ObsBlkID']].append(guide)
+        # get guidestars
+        blkids = {row['ObsBlkID'] for table in tables for row in table \
+                  if row['ObsBlkID'] not in ('--','None',None)}
+        guides = dcs.getGuideStars(list(blkids))
+        guidestars = defaultdict(list)
+        for guide in guides:
+            coord = SkyCoord(ra=guide['RA'],dec=guide['Dec'],unit=(u.deg,u.deg))
+            guide['COORD'] = coord
+            guidestars[guide['ObsBlkID']].append(guide)
 
     
-    # output directory for figures
-    fdir = Path(filename).parent/'figs'
-
-    # define partial function for multiprocessing
-    figfunc = partial(make_figures,fdir=fdir,reg=reg,guidestars=guidestars,
+        # output directory for figures
+        fdir = Path(filename).parent/'figs'
+        # define partial function for multiprocessing
+        figfunc = partial(make_figures,fdir=fdir,reg=reg,guidestars=guidestars,
                       irsurvey=irsurvey,savefits=savefits,fpi=fpi)
-    print('Generating figures...')
-    imagefiles = ProgressBar.map(figfunc,tables,multiprocess=MP)
+        print('Generating figures...')
+        imagefiles = ProgressBar.map(figfunc,tables,multiprocess=MP)
 
     if preserve_comments:
-        cooments = copy_comments(filename)
-                
+        oldcomments = copy_comments(filename)
+        if oldcomments is None:
+            oldcomments = ['']*len(tables)
+    else:
+        oldcomments = ['']*len(tables)
 
     if sio:
         print('Generating comments...')
@@ -1592,6 +1657,9 @@ def write_tex_dossier(tables, name,title,filename,
     else:
         print('Gathering comments...')
         comments = ProgressBar.map(make_comments,tables,multiprocess=MP)
+
+    # merge old and new
+    comments = [old if old else new for old,new in zip(oldcomments,comments)]
 
     # finally, render latex template
     render = {'flightName':name.replace('_','\_'),

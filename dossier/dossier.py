@@ -131,7 +131,7 @@ def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID'):
         aor (list): AOR list of dicts.
     
     """
-
+    
     if not leg[plankey]:
         # could be dead leg, or unnamed obsblk
         #    the latter scenario is common when the next cycle targets have not yet been released from science review
@@ -149,7 +149,8 @@ def get_leg(leg, dcs, plankey='ObsPlanID', obsblkkey='ObsBlkID'):
             
     else:
         aor = dcs.getAORs(leg[obsblkkey])
-
+        if aor is None:
+            aor = makeFakeAOR(leg,planid=leg[plankey],obsblk=leg[obsblkkey])
         
     if isinstance(aor,dict):
         aor = [aor]
@@ -181,6 +182,7 @@ def generate_dossier(flightid, odir,
                      irsurvey=None,
                      writetex=True,
                      preserve_comments=False,
+                     no_figure=False,
                      plankey='ObsPlanID',obsblkkey='ObsBlkID'):
     """Generate dossier from flightid
 
@@ -205,6 +207,7 @@ def generate_dossier(flightid, odir,
         savefits (bool): If True, copy SkyView .fits files to local directory structure.
         irsurvey (str): Survey in SkyView imaging catalogs to download additional .fits images. This can be any imaging archive known to SkyView.  Requires savefits=True.
         writetex (bool): If False, suppress .tex file generation.  Mostly for testing.
+        no_figure (bool): If True, suppress figure generateion.
         plankey (str): Key in leg dict for ObsPlanID.
         obsblkkey (str): Key in leg dict for ObsBlkID.
 
@@ -275,6 +278,7 @@ def generate_dossier(flightid, odir,
                           fpi=fpi,
                           savefits=savefits,
                           irsurvey=irsurvey,
+                          no_figure=no_figure,
                           preserve_comments=preserve_comments,
                           writetex=writetex)
     return output
@@ -330,6 +334,9 @@ def _argparse():
     parser.add_argument('-sio','--ioinstructions',
                         dest='sio',action='store_true',
                         help='Override ObsBlk comments with instrument operator instructions (HAWC+ only)')
+    parser.add_argument('-preserve','--preserve-comments',
+                        dest='preserve_comments',action='store_true',
+                        help='Preserve comments from existing .tex file, if it exists')
     #parser.add_argument('-texcmd',type=str,default='pdflatex',
     #                    help='tex compiler in $PATH (default="pdflatex")')
     parser.add_argument('-local',type=str,default=None,
@@ -357,13 +364,13 @@ def _argparse():
                         dest='irsurvey',
                         default=None,
                         help='Save .fits files of specified IR survey. Requires --save-fits options.')
-    parser.add_argument('-mcfg',type=str,default=mcfg_DEFAULT,help='Model config file (default=dcs/DBmodels.cfg)')
+    parser.add_argument('-mcfg',type=str,default=mcfg_DEFAULT,help='Model config file (default=/library/path/DBmodels.cfg)')
     parser.add_argument('-t','--template',
                         dest='template',type=str,default=tex_DEFAULT,
                         help='Template file (default=dossier/template.tex)')
-    parser.add_argument('-preserve','--preserve-comments',
-                        dest='preserve_comments',action='store_true',
-                        help='Preserve comments from existing .tex file, if it exists')
+    parser.add_argument('-nf','--no-figure',
+                        dest='no_figure',action='store_true',
+                        help='Do not make figures')
 
     return parser
     
@@ -454,6 +461,7 @@ def main():
                                   fpi=args.fpi,
                                   irsurvey=args.irsurvey,
                                   savefits=args.savefits,
+                                  no_figure=args.no_figure,
                                   writetex=args.writetex,
                                   preserve_comments=args.preserve_comments)
         outfiles.append(output)

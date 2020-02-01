@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-from peewee import Model,SqliteDatabase,TextField,IntegerField,DoubleField,ForeignKeyField,BooleanField
+from peewee import Model,SqliteDatabase,TextField,IntegerField,DoubleField,ForeignKeyField,BooleanField,TimeField,DateTimeField
 import json
 from pathlib import Path
 from functools import reduce,partial
@@ -7,16 +7,25 @@ from bs4 import BeautifulSoup
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from astropy.table import Table
-#from FAOR import FAOR as dcsFAOR
 #import POS as dcsPOS
-from .FAOR import FAOR as dcsFAOR
+try:
+    from .FAOR import FAOR as dcsFAOR
+except (ModuleNotFoundError,ImportError):
+    from FAOR import FAOR as dcsFAOR
+try:
+    from . import MIS as dcsMIS
+except (ModuleNotFoundError,ImportError):
+    import MIS as dcsMIS
 #from .POS import POS as dcsPOS
 from collections import deque
 from pandas import read_html, concat, DataFrame
 import numpy as np
 import re
+import datetime
 
-DB_TYPE_MAP = {'int':IntegerField,'float':DoubleField,'str':TextField,'bool':BooleanField,'foreign':ForeignKeyField}
+DB_TYPE_MAP = {'int':IntegerField,'float':DoubleField,'str':TextField,'bool':BooleanField,
+               'foreign':ForeignKeyField,'time':TimeField,'datetime':DateTimeField}
+STR_TYPE_MAP = {'int':int,'float':float,'str':str,'bool':bool}
 HTMLPARSER = 'lxml'
 
 POS_SPLIT_RE = re.compile(r'\#-*\sTarget:\s.*\s-*\#\n')
@@ -52,7 +61,7 @@ def generate_field(key, units, options):
     if ftype == 'foreign':
         model = globals()[opt['model']]
         opt['model'] = model
-    
+        
     return field(**opt)
 
 
@@ -81,6 +90,34 @@ def get_attrdict(tags,data_attr,ext='_'):
         # likely a non-science leg
         attrdict = {ext.join((k,attr)):None for k,tag in tags.items() for attr in data_attr[k]}
     return attrdict
+
+def proc_waypoint(tag,keys,data_units):
+    """Get waypoint as dict"""
+    waypt = dict()
+    for k in keys:
+        v = tag.get(k.lower())
+        v = v if v != 'N/A' else None
+        v = data_units.get(k,str)(v) if v is not None else None
+        waypt[k] = v
+        
+    return waypt
+
+def get_waypoints(leg,keys,data_units):
+    """Get waypoint data for leg"""
+    try:
+        waypts = leg.waypoints.find_all('waypoint')
+    except AttributeError:
+        return None
+    data_units = {k:STR_TYPE_MAP.get(v,str) for k,v in data_units.items()}
+    waypt_func = partial(proc_waypoint,keys=keys,data_units=data_units)
+    '''
+    waypts = map
+    waypts = map(lambda tag: {k:tag.get(k.lower()) for k in keys},waypts)
+    waypts = {k:v if v != 'N/A' for k,v in wa
+    print(list(waypts)[0])
+    '''
+    waypts = tuple(map(waypt_func,waypts))
+    return waypts
         
 def make_position(request):
     try:
@@ -123,11 +160,12 @@ def combine_GUIDE_data(target,aorid,dkeys,akeys,mkeys,blkdict,meta):
     row['ObsBlkID'] = blkdict.get(row['aorID'],None)
     return row
 
-def combine_MIS_data(legnum,dkeys,attrs,meta):
+def combine_MIS_data(legnum,dkeys,attrs,waypts,meta):
     row = meta.copy()
     row['Leg'] = legnum
     row.update(dkeys)
     row.update(attrs)
+    row['WAYPTS'] = json.dumps(waypts) if waypts else None
 
     #row['ObsBlk'] = row['ObsBlkID']
     row['planID'] = row['ObsPlanID']
@@ -166,6 +204,13 @@ def combine_AORSEARCH_data(row):
     '''
     row['FlightPlanIDs'] = flightplans
 
+    return row
+
+def replace_keys(row, keymap):
+    for k,v in keymap.items():
+        newval = row.pop(k)
+        if newval:
+            row[v] = newval
     return row
     
 
@@ -210,8 +255,16 @@ def AOR_to_rows(filename, aorcfg):
     positions = (make_position(r) for r in requests)
 
     # Get instrument config info from request.data
-    data_func = partial(get_keydict,keys=json.loads(aorcfg['data_keys']))
+    keys = json.loads(aorcfg['data_keys'])
+    fkeys = json.loads(aorcfg['FORCAST_keys'])
+    keys += fkeys.keys()
+
+    data_func = partial(get_keydict,keys=keys)
     dkeys = map(data_func,(r.data for r in requests))
+
+    # replace forcast specific keys
+    rep_func = partial(replace_keys,keymap=fkeys)
+    dkeys = map(rep_func,dkeys)
 
     # Get obsblk info from request.obsplanobsblockinfolist
     try:
@@ -248,11 +301,38 @@ def MIS_to_rows(filename, miscfg):
     with open(filename,'r') as f:
         mis = BeautifulSoup(f,HTMLPARSER).body.flightplan
 
+    if mis is None and Path(filename).suffix == '.mis':
+        # fallback to legacy format
+        tab = Table.read(filename,format='mis-tab')
+        rows = dcsMIS.MIS_table_to_DB(tab,miscfg)
+        return rows
+        
     #wps = mis.find_all('waypoint')
     #[w.extract() for w in wps]
 
     # Get flight info
     meta = {"FlightPlan":mis['id'],"Series":'_'.join(mis['id'].split('_')[0:-1])}
+
+    # get additional flight header info
+    mkeys = json.loads(miscfg['meta_keys'])
+    exkeys = ('FlightPlan','Leg')  # ignore these
+    for mkey in mkeys:
+        if mkey in exkeys:
+            continue
+        if 'Sun' in mkey:
+            meta[mkey] = mis.sunsetrise.select_one(mkey).text
+        else:
+            meta[mkey] = mis[mkey.lower()]
+
+    # format datetime keys
+    dunits = json.loads(miscfg['data_units'])
+    for k,v in dunits.items():
+        if v == 'datetime':
+            try:
+                dt = datetime.datetime.strptime(meta[k], '%Y-%m-%dT%H:%M:%SZ')
+            except ValueError:
+                dt = datetime.datetime.strptime(meta[k], '%Y-%b-%d %H:%M:%S %Z')
+            meta[k] = dt.strftime('%Y-%m-%d %H:%M:%S')
 
     # save filename
     meta['FILENAME'] = str(Path(filename).resolve())
@@ -281,9 +361,15 @@ def MIS_to_rows(filename, miscfg):
     attr_func = partial(get_attrdict,data_attr=data_attr)
     attrs = map(attr_func,attrs)
 
+    # Get waypoints
+    waypt_func = partial(get_waypoints,
+                         keys=json.loads(miscfg['waypts_keys']),
+                         data_units=json.loads(miscfg['waypts_data_units']))
+    waypts = list(map(waypt_func,legs))
+    
     # combine all xml data into row
     row_func = partial(combine_MIS_data,meta=meta)
-    rows = map(row_func,legnums,dkeys,attrs)
+    rows = map(row_func,legnums,dkeys,attrs,waypts)
 
     return list(rows)
 
@@ -524,7 +610,7 @@ def ModelFactory(name, config, db, register=True):
     cls.as_pandas = _as_pandas
     cls.as_json = lambda x: json.dumps(x)
     cls.as_table = _as_table
-        
+    
     return cls
 
 
@@ -542,6 +628,25 @@ if __name__ == '__main__':
     c = ConfigParser()
     c.read('DBmodels.cfg')
 
+    misfile = '/home/msgordo1/Downloads/202001_HA_JONAS_WX12.misxml'
+    rows = MIS_to_rows(misfile,c['MIS'])
+    print(rows)
+
+    exit()
+
+    aorfile = '/home/msgordo1/.astropy/cache/DCS/astropy/download/py3/c8e3b8507f078fef10b677a8813bb058'
+    aors = AOR_to_rows(aorfile,c['AOR'])
+    for aor in aors:
+        if aor['aorID'] == '07_0049_60':
+            print(aor)
+
+    exit()
+
+    misfile = '/home/msgordo1/.astropy/cache/DCS/astropy/download/py3/2045115f3d5f18458abc0eb97fcbf123'
+
+    mis = MIS_to_rows(misfile,c['MIS'])
+    exit()
+    
     aorfile = '/home/msgordo1/.astropy/cache/DCS/astropy/download/py3/e4289dd22b7aee455660b29a4b5e431e'
     #'../test/07_0130.aor'
     guide = GUIDE_to_rows(aorfile,c['GUIDE'])

@@ -40,33 +40,17 @@
 }
 
 
-%# CHANGE TABULAR TO HAVE COLORED HEADER
+% CHANGE TABULAR TO HAVE COLORED HEADER
 \definecolor{headercolor}{gray}{0.8}
-%\AtBeginEnvironment{tabular}{%
-%  \rowcolors{1}{%
-%    \ifnumless{\rownum}{2}{%
-%      headercolor}{white}%
-%  }{}%
-%}
 
-%# CHANGE FIRST ROW TO BOLD
+% CHANGE FIRST ROW TO BOLD
 \newcolumntype{$}{>{\global\let\currentrowstyle\relax}}
 \newcolumntype{^}{>{\currentrowstyle}}
 \newcommand{\rowstyle}[1]{\gdef\currentrowstyle{#1}%
   #1\ignorespaces
 }
 
-%# OPTIONAL SPLASH
-\newcommand{\splash}{%
-  \begin{wrapfigure}{l}{\textwidth}
-    \begin{adjustwidth}{-0.83in}{0in}
-      \vspace*{5in}
-      \includegraphics[width=4in,angle=90]{sofiabanner}
-    \end{adjustwidth}
-  \end{wrapfigure}
-}
-
-%# IMAGEFILE
+% IMAGEFILE
 \newcommand{\makeimage}[1]{%
   \begin{figure}
     \includegraphics[width=\textwidth]{#1}%
@@ -81,15 +65,14 @@
   \VAR{flightName}
 \end{flight}
 
-%#%%%%%% for legname,overview,comments,detail,position,imagefile,comment in tables
 %% for legname,overview,detail,position,imagefile,comment in tables
 \setheader{\VAR{legname}}{\VAR{title}}
 
 \VAR{overview}
 
-%# <COMMENT legname=\VAR{legname}>
+% <COMMENT legname=\VAR{legname}>
 \VAR{comment}
-%# <COMMENT/>
+% <COMMENT/>
 
 \VAR{detail}
 
