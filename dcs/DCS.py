@@ -202,8 +202,12 @@ class DCS(object):
             return None
         
 
-    def login(self,username=None,password=None,attempts=0):
+    def login(self,username=None,password=None,attempts=0,gui=False):
         """Login to dcs.  Prompts for username/password"""
+        if gui:
+            # wait for gui response
+            username,password = gui()
+        
         if username is None:
             print()
             username = input('DCS User: ')
