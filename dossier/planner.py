@@ -250,7 +250,7 @@ def split_leg(utctab, interval, rofrate=None):
     
     return intervals
 
-def optimize_aor(tup, maximize, tlos, taor, los_buffer=30, maxfrac=.04,**kwargs):
+def optimize_aor(tup, maximize, tlos, taor, los_buffer=30, maxfrac=.05,**kwargs):
     '''Optimization function for itime3'''
     # maxfrac is used in inttime optimization mode. it reflects what fraction of the integration time
     #  over the request is allowed
@@ -265,7 +265,7 @@ def optimize_aor(tup, maximize, tlos, taor, los_buffer=30, maxfrac=.04,**kwargs)
     rewinds = int(np.rint(rewinds))
     loops = int(np.rint(loops))
     ## ALSO NODDWELL??
-    #noddwell = int(np.rint(noddwell))
+    noddwell = int(np.rint(noddwell))
     
 
     if 'c2nc2' in kwargs:
@@ -274,11 +274,11 @@ def optimize_aor(tup, maximize, tlos, taor, los_buffer=30, maxfrac=.04,**kwargs)
             return np.inf
 
     if repeats > 0:
-        '''
+        
         if repeats > 2 and (repeats % 2 == 1):
             # repeats must be even for c2n
             return np.inf
-        '''
+        
         if (rewinds % repeats != 0) and (rewinds != 0):
             # Repeats must be an integer multiple of rewinds
             return np.inf
@@ -294,7 +294,15 @@ def optimize_aor(tup, maximize, tlos, taor, los_buffer=30, maxfrac=.04,**kwargs)
     elif maximize == 'inttime':
         if inttime > (1+maxfrac)*taor:
             return np.inf
+        if inttime < (1-maxfrac)*taor:
+            return np.inf
         return 1/inttime
+    elif maximize == 'tottime':
+        if inttime > (1+maxfrac)*taor:
+            return np.inf
+        if inttime < (1-maxfrac)*taor:
+            return np.inf
+        return 1/np.abs(inttime-taor)
     elif maximize == 'dur':
         return np.abs(taor-fdur)
     else:
@@ -346,14 +354,14 @@ def read_rofdict(rofstr):
 def plan_obsblock(obsblock,mistab,
                   legno=None,
                   swc_opt = 30*u.s,
-                  lwc_opt = 90*u.s,
+                  lwc_opt = 45*u.s,
                   dual_opt = 40*u.s,
                   #grism_opt = 30*u.s,
-                  swc_bounds = [10,35],
-                  lwc_bounds = [10,65],
+                  swc_bounds = [15,35],
+                  lwc_bounds = [20,55],
                   dual_bounds = [20,55],
-                  niter=8,
-                  los_buffer=30,
+                  niter=6,
+                  los_buffer=45,
                   multiprocess=True,
                   basic=False,
                   quick=False,
@@ -504,6 +512,21 @@ def plan_obsblock(obsblock,mistab,
             loops = 1
             loopbounds = [1,1]
 
+
+        # for short aors
+        if r['TotalTime'] < 121:
+            noddwell = 15
+            nodbounds = [10,60]
+
+        # for long aors
+        if r['TotalTime'] > 61:
+            repeats = 2
+
+        if r['TotalTime'] > 121:
+            repeats = 4
+        
+
+
         if r['ObsPlanMode'] == 'NXCAC':
             nxcac = True
         else:
@@ -523,6 +546,7 @@ def plan_obsblock(obsblock,mistab,
             nitrun = 1
         else:
             nitrun = niter
+        
 
         '''
         if cal and not 'ACQ' in r['Mode']:
@@ -641,6 +665,7 @@ def plan_obsblock(obsblock,mistab,
             # if totaltime is true, do not divide legshare
             #taor = r['Total Exp']*u.s
             cyc = cycle(('inttime',))
+            #cyc = cycle(('tottime',))
             aortime = r['TotalTime']*u.s
             nitrun = 4
         else:
@@ -649,6 +674,7 @@ def plan_obsblock(obsblock,mistab,
             ##aortime = taor
             ##nitrun = 2
             cyc = cycle(('inttime',)) ### UPDATE: only do inttime
+            #cyc = cycle(('tottime',))
             aortime = r['TotalTime']*u.s
             nitrun = 4
         # <<
@@ -675,7 +701,7 @@ def plan_obsblock(obsblock,mistab,
             #basinfunc = partial(do_basin,func=optimize,x0=x0,bounds=bounds,fixed=fixed or cal)
             if quick:
                 basinfunc = partial(do_basin,func=optimize,x0=x0,bounds=bounds,fixed=fixed,
-                                    niter=100,stepsize=2,interval=10)
+                                    niter=200,stepsize=2,interval=20)
             else:
                 basinfunc = partial(do_basin,func=optimize,x0=x0,bounds=bounds,fixed=fixed)
 
@@ -703,11 +729,10 @@ def plan_obsblock(obsblock,mistab,
 
         for re in res:
             inputs = {k:v for k,v in zip(('noddwell','repeats','rewinds','dithers','loops'),re['x'])}
-            #inputs['dithers'] = dithers
-            inputs['noddwell'] = np.around(inputs['noddwell'],1) # round to 1/10th of a second
+            ###inputs['noddwell'] = np.around(inputs['noddwell'],1) # round to 1/10th of a second
             inputs['TAOR'] = taor.to(u.s).value
 
-            for k in ('repeats','repeats','rewinds','dithers','loops'):
+            for k in ('noddwell','repeats','repeats','rewinds','dithers','loops'):
                 # make sure these are integers
                 inputs[k] = int(np.rint(inputs[k]))
 
@@ -740,7 +765,7 @@ def plan_obsblock(obsblock,mistab,
         #results.sort(['EFF','INTTIME'])
         #results.reverse()
 
-        results = sort_and_eval(results,eff=True)
+        results = sort_and_eval(results,eff=True)  # true ?
 
         # print and highlight chosen line
         results.pprint(fline=0)
@@ -1056,6 +1081,7 @@ def main():
             #exit()
             #utctab = list(filter(lambda x:x.meta['Leg'] == leg['Leg'], utctabs))[0]
             utctab.pprint()
+            print()
             iTab = split_leg(utctab, interval, rofrate=rofrate)
 
             # just print out table if dry-run is set
@@ -1071,7 +1097,7 @@ def main():
                 print()
                 print()
                 continue
-
+            
             # if rofdict in Plan ID cfg, override all values in plan_obsblock
             planID = '_'.join(leg['ObsBlkID'].split('_')[1:3])
             if planID in cfg and 'rofdict' in cfg[planID]:
