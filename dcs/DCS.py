@@ -490,7 +490,7 @@ class DCS(object):
             # return faors in format to match aorids in dossier
             key_map = {'NODDWELL':'Nod','REPEATS':'Repeat','AORID':'aorID',
                        'DITHER':'Dithers','DITHSCALE':'Scale','FILENAME':'FAORfile',
-                       'INTTIME':'IntTime','FDUR':'FDUR',
+                       'INTTIME':'IntTime','FDUR':'FDUR','SLIT':'Slit','TREQ':'TREQ',
                        'DURPERREW':'TREW','TLOS':'TLOS','TLSPN':'TLSPN',
                        'rewind':'Rewind','loop':'Loop'}
             faors = self._get(search, 'FAOR', *args, **kwargs)

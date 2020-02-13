@@ -42,7 +42,7 @@ warnings.filterwarnings('ignore',category=AstropyUserWarning)
 warnings.filterwarnings('ignore',category=AstropyWarning)
 np.warnings.filterwarnings('ignore')
 
-DEBUG = False
+DEBUG = True
 MP = False if DEBUG else True
 
 if DEBUG is False:
@@ -733,6 +733,9 @@ def make_details(tab, tex=True, faor=False):
                      'Rewind','Loop']
         mode_map = {'ACQUISITION':'ACQ','GRISM':'GSM','IMAGING':'IMG'}
 
+        print(tab[0].keys())
+        exit()
+
         for t in tab:
             sys = t['ChopAngleCoordinate']
             t['ChopAngleCoordinate'] = 'ERF' if sys == 'Sky' else 'SIRF'
@@ -766,9 +769,14 @@ def make_details(tab, tex=True, faor=False):
 
         # make table
         detail = Table(detail,names=keys)
-
+        
         # rename columns
         detail.rename_columns(tuple(key_map.keys()),tuple(key_map.values()))
+
+        # if 'Nod' present from FAOR, then replace NodTime
+        if 'Nod' in detail.colnames:
+            detail['NodTime'] = detail['Nod']
+            detail.remove_column('Nod')
 
         # if all modes are NMC, drop nod/c2nc2 params
         if all((mode == 'NMC' for mode in detail['Type'])):
@@ -823,7 +831,8 @@ def make_details(tab, tex=True, faor=False):
         blank_zero_cols = ('ScanDur','ChopThrow','ScanTime','NodTime',
                            'ScanAmp','ScanRate','NodThrow')   # make a zero blank
         for col in ('NodTime','Repeat','ScanDur','ChopThrow','ChopAngle','ScanTime',
-                    'ScanAmp','ScanRate','NodThrow','NodAngle','TotalTime','IntTime'):
+                    'ScanAmp','ScanRate','NodThrow','NodAngle','TotalTime','IntTime',
+                    'Rewind','Loop','Dithers'):
             try:
                 try:
                     floats = detail[col].filled(0)
@@ -867,6 +876,7 @@ def make_details(tab, tex=True, faor=False):
                 
         # set int formatter
         intcols = ('NodTime','Repeat','ScanDur','ChopThrow','ChopAngle','ScanTime',
+                   'Rewind','Loop','Dithers',
                    'ScanAmp','ScanRate','NodThrow','NodAngle','TotalTime','IntTime')
         intformat_func = partial(INT_CONVERTER,cols=intcols)
         detail = list(map(intformat_func,detail))
