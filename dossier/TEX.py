@@ -725,16 +725,13 @@ def make_details(tab, tex=True, faor=False):
     elif instrument == 'FORCAST':
         keys = ['ObsPlanConfig','ObsPlanMode','aorID','Name',
                 'InstrumentSpectralElement1','InstrumentSpectralElement2',
-                'Repeat','NodTime','TotalTime',
+                'Repeat','NodTime',
                 'ChopThrow','ChopAngle','ChopAngleCoordinate',
-                'NodThrow','NodAngle']
+                'NodThrow','NodAngle','TotalTime']
         key_map = {'ObsPlanConfig':'Mode','aorID':'AORID','ObsPlanMode':'Type','ChopAngleCoordinate':'Sys','InstrumentSpectralElement1':'SWC','InstrumentSpectralElement2':'LWC'}
-        faor_keys = ['Nod','Dithers','Scale','IntTime','FDUR','TLOS','TLSPN',
-                     'Rewind','Loop']
+        faor_keys = ['Nod','Dithers','Scale','FDUR','TREW','TLOS','TLSPN','DitherCoord',
+                     'Rewind','Loop','IntTime']
         mode_map = {'ACQUISITION':'ACQ','GRISM':'GSM','IMAGING':'IMG'}
-
-        print(tab[0].keys())
-        exit()
 
         for t in tab:
             sys = t['ChopAngleCoordinate']
@@ -817,6 +814,10 @@ def make_details(tab, tex=True, faor=False):
                 detail.remove_columns(('TLSPN','TLOS'))
             except KeyError:
                 pass
+
+        if 'TLSPN' in detail.colnames:
+            detail.replace_column('TLSPN',
+                                  Column([float(x.split()[0]) for x in detail['TLSPN']],name='TLSPN'))
             
 
     else:
@@ -832,7 +833,7 @@ def make_details(tab, tex=True, faor=False):
                            'ScanAmp','ScanRate','NodThrow')   # make a zero blank
         for col in ('NodTime','Repeat','ScanDur','ChopThrow','ChopAngle','ScanTime',
                     'ScanAmp','ScanRate','NodThrow','NodAngle','TotalTime','IntTime',
-                    'Rewind','Loop','Dithers'):
+                    'Rewind','Loop','Dithers','FDUR','TREW','TLOS','Scale'):
             try:
                 try:
                     floats = detail[col].filled(0)
@@ -853,20 +854,47 @@ def make_details(tab, tex=True, faor=False):
             except (KeyError,ValueError):
                 continue
 
+        # force some cols to round
+        for col in ('IntTime','FDUR','TLOS'):
+            if col in detail.colnames:
+                detail.replace_column(col,Column(np.rint(detail[col]),name=col))
+                detail[col].format = INT_FORMATTER
 
         # set units
-        detail.meta['units'] = {'NodTime':'s','ChopThrow':r'$^{\prime\prime}$','ChopAngle':r'$^\circ$','ScanDur':'s','ScanAmp':r'$^{\prime\prime}$','ScanRate':'$^{\prime\prime}$/s','TotalTime':'s','NodDwell':'s','NodAngle':r'$^\circ$','NodThrow':r'$^{\prime\prime}$','IntTime':'s'}
+        detail.meta['units'] = {'NodTime':'s','ChopThrow':r'$^{\prime\prime}$','ChopAngle':r'$^\circ$','ScanDur':'s','ScanAmp':r'$^{\prime\prime}$','ScanRate':'$^{\prime\prime}$/s','TotalTime':'s','NodDwell':'s','NodAngle':r'$^\circ$','NodThrow':r'$^{\prime\prime}$','IntTime':'s','FDUR':'s','TLOS':'s','TREW':'s','TLSPN':r'$^\circ$'}
 
         caption = '\\captionline{Observation details %s:}{}' % tab[0]['ObsBlkID']
         detail.meta['caption'] = caption.replace('_','\_')
-
-        # if FORCAST, split into two tables
-        #### NOT IMPLEMENTED YET
 
         # add strikethrough
         observed_dict = {t['aorID']:t.get('observed',False) for t in tab}
         detail.meta['observed'] = observed_dict
 
+
+        # if FORCAST, split into two tables
+        if instrument == 'FORCAST':
+            detail2 = detail.copy()
+
+            # fix metadata
+            del detail.meta['footer']
+            del detail2.meta['caption']
+
+            d_keep = filter(lambda x: x in detail.colnames, ('Mode','Type','AORID','Name','SWC','LWC',
+                                                             'ChopThrow','ChopAngle','NodThrow','NodAngle',
+                                                             'Sys','TotalTime'))
+            d2_keep = filter(lambda x: x in detail2.colnames, ('AORID','Repeat','NodTime','Dithers','Scale',
+                                                               'FDUR','TREW','TLOS','TLSPN','IntTime'))
+
+            detail.keep_columns(list(d_keep))
+            detail.rename_column('TotalTime','ReqTime')
+            detail.meta['units']['ReqTime'] = 's'
+
+            detail2.keep_columns(list(d2_keep))
+            if 'Scale' in detail2.colnames:
+                detail2.meta['units']['Scale'] = r'$^{\prime\prime}$'
+
+            detail = [detail,detail2]
+            
         # return tex string
         detail = generate_details_tex(detail)
 
@@ -946,6 +974,7 @@ def generate_details_tex(detail):
         texcode = texcode.replace('Lissajous','LIS')
         texcode = texcode.replace('Nod Time','Nod')
         texcode = texcode.replace('nan','')
+        texcode = texcode.replace('None','')
         texcode = texcode.replace('Chop Throw','ChpT')
         texcode = texcode.replace('ChopThrow','ChpT')
         texcode = texcode.replace('Chop Ang','ChpA')
@@ -964,7 +993,7 @@ def generate_details_tex(detail):
             
         texcodes.append(texcode)
 
-    texcodes = '\n\n'.join(list(texcodes))
+    texcodes = '\n\\vspace*{-3em}\n'.join(list(texcodes))
     return texcodes
 
 
@@ -1499,7 +1528,9 @@ def match_FAORs(tables,dcs):
 
     for table in ProgressBar(tables):
         for row in table:
-            row.update(faors.get(row['aorID']))
+            match = faors.get(row['aorID'])
+            if match:
+                row.update(match)
     return tables
 
 def get_FAOR_map(faordir,keys=None,label=''):

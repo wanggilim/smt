@@ -492,7 +492,7 @@ class DCS(object):
                        'DITHER':'Dithers','DITHSCALE':'Scale','FILENAME':'FAORfile',
                        'INTTIME':'IntTime','FDUR':'FDUR','SLIT':'Slit','TREQ':'TREQ',
                        'DURPERREW':'TREW','TLOS':'TLOS','TLSPN':'TLSPN',
-                       'rewind':'Rewind','loop':'Loop'}
+                       'rewind':'Rewind','loop':'Loop','TARGET':'Name'}
             faors = self._get(search, 'FAOR', *args, **kwargs)
             faors = [{newk:f[k] for k,newk in key_map.items()} for f in faors]
             faors = {f['aorID']:f for f in faors}
@@ -1021,6 +1021,7 @@ class DCS(object):
                        as_table=False,
                        as_pandas=False,
                        as_json=False,
+                       force_mis=False,
                        insert=True):
         '''Download mis file'''
         if local:
@@ -1047,7 +1048,8 @@ class DCS(object):
                 
 
         else:
-            query = (self.dcsurl/rel).with_query({'fpid':flightid,'fileType':'misxml'})
+            ftype = 'mis' if force_mis else 'misxml'
+            query = (self.dcsurl/rel).with_query({'fpid':flightid,'fileType':ftype})
             cfile = self._queryDCS(query, form)
 
         with open(cfile,'r') as f:

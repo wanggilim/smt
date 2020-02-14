@@ -29,9 +29,17 @@ ROF_RE = re.compile('\[([\+\-\d\.]*)\,\s?([\+\-\d\.]*)\]')
 VALIDSTR = ('force','yes','on','true')
 
 
-def get_waypt_table(leg):
+def get_waypt_table(leg, dcs=None):
     """Convert list of dict waypts into table"""
-    waypts = json.loads(leg['WAYPTS'])
+    try:
+        waypts = json.loads(leg['WAYPTS'])
+    except TypeError:
+        # force redownload of .mis
+        if not dcs:
+            dcs = DCS.DCS()
+        legs = dcs._getFlightPlan(leg['FlightPlan'],force_mis=True)
+        leg = list(filter(lambda d: d['Leg'] == leg['Leg'],legs))
+        waypts = json.loads(leg['WAYPTS'])
     table = Table(rows=waypts,names=waypts[0].keys())
     table.meta.update(**leg)
     del table.meta['WAYPTS']
@@ -482,10 +490,10 @@ def plan_obsblock(obsblock,mistab,
         ditherbounds = [dithers,dithers]
 
         # set default nods
-        if 'LWC' in r['InstrumentConfiguration']:
+        if r['InstrumentConfiguration'] and 'LWC' in r['InstrumentConfiguration']:
             noddwell = lwc_opt
             nodbounds = lwc_bounds
-        elif 'DUAL' in r['InstrumentConfiguration']:
+        elif r['InstrumentConfiguration'] and 'DUAL' in r['InstrumentConfiguration']:
             noddwell = dual_opt
             nodbounds = dual_bounds
         else:
@@ -717,8 +725,11 @@ def plan_obsblock(obsblock,mistab,
             else:
                 res = [basinfunc(seeds[0])]
                 
-        print()
-        print(', '.join((r['aorID'],r['InstrumentConfiguration'],r['ObsPlanMode'],'%i Dithers'%dithers,'%.2f @ %.1f deg LOS'%(rofrate.value,span.to(u.deg).value))))
+        try:
+            print(', '.join((r['aorID'],r['InstrumentConfiguration'],r['ObsPlanMode'],'%i Dithers'%dithers,'%.2f @ %.1f deg LOS'%(rofrate.value,span.to(u.deg).value))))
+        except TypeError:
+            r['InstrumentConfiguration'] = r['ObsPlanConfig']
+            print(', '.join((r['aorID'],r['InstrumentConfiguration'],r['ObsPlanMode'],'%i Dithers'%dithers,'%.2f @ %.1f deg LOS'%(rofrate.value,span.to(u.deg).value))))
 
         results = deque()
         '''
@@ -1077,7 +1088,7 @@ def main():
                 interval = 0
 
             # calculate interval start times
-            utctab = get_waypt_table(leg)
+            utctab = get_waypt_table(leg,dcs=dcs)
             #exit()
             #utctab = list(filter(lambda x:x.meta['Leg'] == leg['Leg'], utctabs))[0]
             utctab.pprint()

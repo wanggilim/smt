@@ -304,7 +304,7 @@ def MIS_to_rows(filename, miscfg):
     with open(filename,'r') as f:
         mis = BeautifulSoup(f,HTMLPARSER).body.flightplan
 
-    if mis is None and Path(filename).suffix == '.mis':
+    if mis is None or Path(filename).suffix == '.mis':
         # fallback to legacy format
         tab = Table.read(filename,format='mis-tab')
         rows = dcsMIS.MIS_table_to_DB(tab,miscfg)
