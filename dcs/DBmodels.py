@@ -45,7 +45,15 @@ def _as_table(rows):
         columns = rows.keys()
     else:
         columns = rows[0].keys()
-    return Table(data=rows,names=columns)
+    #print(rows[0])
+    #print(columns)
+    try:
+        table = Table(data=rows,names=columns)
+    except ValueError:
+        rows = [{k:row.get(k,None) for k in columns} for row in rows]
+        table = Table(data=rows,names=columns)
+        
+    return table
 
 def _as_json(rows):
     return json.dumps(rows,default=str)

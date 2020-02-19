@@ -107,6 +107,7 @@ TARFOFFSET = {'HAWC_PLUS':3*u.deg,
 INST_REPL = {'University':'Univ','Universitaet':'Univ',
              'Department':'Dept',' and':' \&',' und':' \&',
              'Institute':'Inst','Institut':'Inst',
+             'Observatory':'Obs',
              'fuer ':'f.\ ','der ':'d.\ ',
              'Astrophysics':'Ast','Astrophysik':'Ast',
              'Dr. ':'','Mr. ':'','Ms. ':'','Mrs. ':'',
@@ -729,8 +730,8 @@ def make_details(tab, tex=True, faor=False):
                 'ChopThrow','ChopAngle','ChopAngleCoordinate',
                 'NodThrow','NodAngle','TotalTime']
         key_map = {'ObsPlanConfig':'Mode','aorID':'AORID','ObsPlanMode':'Type','ChopAngleCoordinate':'Sys','InstrumentSpectralElement1':'SWC','InstrumentSpectralElement2':'LWC'}
-        faor_keys = ['Nod','Dithers','Scale','FDUR','TREW','TLOS','TLSPN','DitherCoord',
-                     'Rewind','Loop','IntTime']
+        faor_keys = ['Nod','Loop','Dithers','Scale','FDUR','TREW','TLOS','TLSPN','DitherCoord',
+                     'Rewind','IntTime']
         mode_map = {'ACQUISITION':'ACQ','GRISM':'GSM','IMAGING':'IMG'}
 
         for t in tab:
@@ -821,7 +822,9 @@ def make_details(tab, tex=True, faor=False):
             
 
     else:
-        raise NotImplementedError('Instrument %s not implemented' % instrument)
+        #raise NotImplementedError('Instrument %s not implemented. %s' % (instrument, tab[0]['ObsBlkID']))
+        print('WARNING: Instrument %s not implemented. %s' % (instrument, tab[0]['ObsBlkID']))
+        return ''
 
     if tex:
         # set formatter to replace '_' with '\_'
@@ -882,7 +885,7 @@ def make_details(tab, tex=True, faor=False):
             d_keep = filter(lambda x: x in detail.colnames, ('Mode','Type','AORID','Name','SWC','LWC',
                                                              'ChopThrow','ChopAngle','NodThrow','NodAngle',
                                                              'Sys','TotalTime'))
-            d2_keep = filter(lambda x: x in detail2.colnames, ('AORID','Repeat','NodTime','Dithers','Scale',
+            d2_keep = filter(lambda x: x in detail2.colnames, ('AORID','Repeat','NodTime','Dithers','Scale','Loop',
                                                                'FDUR','TREW','TLOS','TLSPN','IntTime'))
 
             detail.keep_columns(list(d_keep))
@@ -994,6 +997,7 @@ def generate_details_tex(detail):
         texcodes.append(texcode)
 
     texcodes = '\n\\vspace*{-3em}\n'.join(list(texcodes))
+    texcodes = '\\vspace*{-3em}\n%s' % texcodes
     return texcodes
 
 

@@ -171,7 +171,7 @@ def itime3(noddwell, repeats, rewinds=0, dithers=0, loops=1,
 
 
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser(description='Integration time efficiency calculator')
     parser.add_argument('noddwell',type=float,help='Nod dwell time in sec')
     parser.add_argument('repeats',type=int,help='Number of repeats')
@@ -198,3 +198,8 @@ if __name__ == '__main__':
                                         dithertime=args.dithertime,
                                         filtchange=args.filtchange,
                                         lost=args.lost)
+
+    
+
+if __name__ == '__main__':
+    main()

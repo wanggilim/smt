@@ -184,6 +184,10 @@ def split_leg(utctab, interval, rofrate=None):
     if idx:
         utctab.remove_rows(idx[0])
 
+
+    if len(utctab) == 0:
+        return None
+
     date = utctab.meta['DepartureTime'].strftime('%Y-%m-%d')
     times = Time([Time.strptime(' '.join((t,date)),'%H:%M:%S %Y-%m-%d') for t in utctab['UTC']])
 
@@ -539,7 +543,8 @@ def plan_obsblock(obsblock,mistab,
             nxcac = True
         else:
             nxcac = False
-            
+
+        '''
         if 'ACQ' in r['ObsPlanConfig']:
             # acquisition mode set to 10 seconds
             repeats = 2
@@ -554,6 +559,7 @@ def plan_obsblock(obsblock,mistab,
             nitrun = 1
         else:
             nitrun = niter
+        '''
         
 
         '''
@@ -617,7 +623,7 @@ def plan_obsblock(obsblock,mistab,
         repeatbounds = chmap.getints('repeatbounds', repeatbounds)
         loopbounds = chmap.getints('loopbounds', loopbounds)
         rewindbounds = chmap.getints('rewindbounds', rewindbounds)
-        nitrun = chmap.getint('niter',nitrun)
+        nitrun = chmap.getint('niter',niter)
 
         dithers = chmap.getint('dithers',dithers)
         ditherbounds = chmap.getints('ditherbounds', ditherbounds)
@@ -668,6 +674,22 @@ def plan_obsblock(obsblock,mistab,
             rewindbounds = [rewinds,rewinds]
         if 'dithers' in chmap:
             ditherbounds = [dithers,dithers]
+
+
+        if 'ACQ' in r['ObsPlanConfig']:
+            # acquisition mode set to 10 seconds
+            repeats = 2
+            repeatbounds = [2,2]
+            c2nc2 = False
+            loops = 1
+            loopbounds = [1,1]
+            noddwell = 10*u.s
+            nodbounds = [10,10]*u.s
+            dithers = 0
+            ditherbounds = [0,0]
+            nitrun = 1
+        else:
+            nitrun = niter
 
         if chmap.getboolean('totaltime',False):
             # if totaltime is true, do not divide legshare
@@ -726,6 +748,9 @@ def plan_obsblock(obsblock,mistab,
                 res = [basinfunc(seeds[0])]
                 
         try:
+            if 'ACQ' in r['ObsPlanConfig']:
+                r['InstrumentConfiguration'] = r['ObsPlanConfig']
+                
             print(', '.join((r['aorID'],r['InstrumentConfiguration'],r['ObsPlanMode'],'%i Dithers'%dithers,'%.2f @ %.1f deg LOS'%(rofrate.value,span.to(u.deg).value))))
         except TypeError:
             r['InstrumentConfiguration'] = r['ObsPlanConfig']
@@ -743,7 +768,7 @@ def plan_obsblock(obsblock,mistab,
             ###inputs['noddwell'] = np.around(inputs['noddwell'],1) # round to 1/10th of a second
             inputs['TAOR'] = taor.to(u.s).value
 
-            for k in ('noddwell','repeats','repeats','rewinds','dithers','loops'):
+            for k in ('noddwell','repeats','rewinds','dithers','loops'):
                 # make sure these are integers
                 inputs[k] = int(np.rint(inputs[k]))
 
@@ -1053,7 +1078,6 @@ def main():
             # if no obsblk, skip
             if not leg['ObsBlkID']:
                 continue
-            
 
             # apply aliases, if any
             if args.alias and leg['ObsBlkID'] in args.alias:
@@ -1091,9 +1115,12 @@ def main():
             utctab = get_waypt_table(leg,dcs=dcs)
             #exit()
             #utctab = list(filter(lambda x:x.meta['Leg'] == leg['Leg'], utctabs))[0]
-            utctab.pprint()
+            #utctab.pprint()
             print()
             iTab = split_leg(utctab, interval, rofrate=rofrate)
+            if iTab is None:
+                continue
+
 
             # just print out table if dry-run is set
             if args.dry:
