@@ -42,7 +42,7 @@ warnings.filterwarnings('ignore',category=AstropyUserWarning)
 warnings.filterwarnings('ignore',category=AstropyWarning)
 np.warnings.filterwarnings('ignore')
 
-DEBUG = True
+DEBUG = False
 MP = False if DEBUG else True
 
 if DEBUG is False:
@@ -349,12 +349,14 @@ def get_image(overlays,survey='DSS2 Red',width=0.2*u.deg,height=0.2*u.deg,
                                 show_progress=DEBUG)
     except (SSLError,ChunkedEncodingError,ConnectionError):
         warnings.warn('Cannot query SkyView service. Skipping image.')
+        print('Cannot query SkyView service. Skipping image.')
         return None
 
     try:
         hdu = im[0][0]
     except (IndexError,TypeError):
         warnings.warn('Cannot process SkyView response. Skipping image.')
+        print('Cannot process SkyView response. Skipping image.')
         return None
         
     fig = FITSFigure(hdu)
@@ -823,6 +825,7 @@ def make_details(tab, tex=True, faor=False):
 
     else:
         #raise NotImplementedError('Instrument %s not implemented. %s' % (instrument, tab[0]['ObsBlkID']))
+        warnings.warn('WARNING: Instrument %s not implemented. %s' % (instrument, tab[0]['ObsBlkID']))
         print('WARNING: Instrument %s not implemented. %s' % (instrument, tab[0]['ObsBlkID']))
         return ''
 
@@ -875,12 +878,14 @@ def make_details(tab, tex=True, faor=False):
 
 
         # if FORCAST, split into two tables
-        if instrument == 'FORCAST':
+        if instrument == 'FORCAST' and 'FAORfile' in tab[0]:
             detail2 = detail.copy()
 
             # fix metadata
-            del detail.meta['footer']
-            del detail2.meta['caption']
+            if 'footer' in detail.meta:
+                del detail.meta['footer']
+            if 'caption' in detail2.meta:
+                del detail2.meta['caption']
 
             d_keep = filter(lambda x: x in detail.colnames, ('Mode','Type','AORID','Name','SWC','LWC',
                                                              'ChopThrow','ChopAngle','NodThrow','NodAngle',
@@ -1148,7 +1153,11 @@ def generate_overlay(row,nod=True,dithers=True):
     else:
         roll = float(rolls[0])*u.deg
 
-    TARFoffset = TARFOFFSET[row['InstrumentName']]
+    try:
+        TARFoffset = TARFOFFSET[row['InstrumentName']]
+    except KeyError:
+        # likely wrong instrument
+        return None
 
     # get band and mode for FOV
     band = row['InstrumentSpectralElement1'].split('_')[-1]
