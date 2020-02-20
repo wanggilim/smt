@@ -157,6 +157,11 @@ def combine_AOR_data(name,position,rkeys,dkeys,blkdict,comments,meta):
     row['ObsBlkID'] = blkdict.get(row['aorID'],None)
     if comments:
         row['ObsBlkComment'] = comments.get(row['ObsBlkID'])
+
+    if row['InstrumentName'] == 'FORCAST':
+        # THIS IS NEW AND POSSIBLY DANGEROUS
+        if row.get('TotalTime') and row.get('Repeat'):
+            row['TotalTime'] = float(row['TotalTime']) * float(row['Repeat'])
     return row
 
 def combine_GUIDE_data(target,aorid,dkeys,akeys,mkeys,blkdict,meta):
