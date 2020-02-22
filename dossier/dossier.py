@@ -5,7 +5,7 @@
 ## SOFIA Dossier Tool
 ## Author: Michael S. Gordon (mgordon@sofia.usra.edu)
 ##
-## version: 1.2.9
+## version: 1.3.5
 ##
 ######################################################
 from dcs import DCS
@@ -211,6 +211,7 @@ def generate_dossier(flightid, odir,
                      mconfig=None,
                      alias=None,
                      faor=False,
+                     sct=False,
                      posfiles=False,
                      reg=False,
                      sio=False,
@@ -236,7 +237,7 @@ def generate_dossier(flightid, odir,
         config (str): Config file with options for ObsBlks/Legs in dossier.
         mconfig (str): Config file with database schema.
         alias (dict): Dictionary of ObsBlks to replace or alias (e.g. for dummy FORCAST cal files).
-        faor (bool): If True, process FORCAST configurations from .faor files.  These files must have been generated from companion 'planner.py' script and must exist in an 'faors/' folder within the output directory structure.
+        faor (bool): If True, process FORCAST configurations from .faor files.  These files must have been generated from companion 'sof-planner' script and must exist in an 'faors/' folder within the output directory structure.
         posfiles (bool): If True, pull down .pos files from DCS.
         reg (bool): If True, generate DS9 region files of overlays.
         fpi (bool): If True, add FPI overlay to figures.
@@ -307,6 +308,7 @@ def generate_dossier(flightid, odir,
                           mconfig=mconfig,
                           refresh_cache=refresh_cache,
                           faor=faor,
+                          sct=sct,
                           posfiles=posfiles,
                           dcs=dcs,
                           local=local,
@@ -363,6 +365,7 @@ def _argparse():
                         dest='compile',action='store_true',
                         help='Compile tex to pdf')
     parser.add_argument('--faor',action='store_true',help='Populate values from FAORs (FORCAST only)')
+    parser.add_argument('--sct',action='store_true',help='Populate values from SCTs (FIFI-LS only)')
     parser.add_argument('--pos',dest='posfiles',action='store_true',help='Download .pos files')
     #parser.add_argument('--guide',action='store_true',help='Highlight guide stars in images.')
     parser.add_argument('-fpi','--show-fpi',
@@ -462,6 +465,7 @@ def main():
                                   mconfig=args.mcfg,
                                   alias=args.alias,
                                   faor=args.faor,
+                                  sct=args.sct,
                                   posfiles=args.posfiles,
                                   reg=args.reg,
                                   sio=args.sio,

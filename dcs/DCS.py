@@ -83,7 +83,7 @@ class DCS(object):
                  refresh_cache=False,
                  #modelcfg = 'dcs/DBmodels.cfg',
                  modelcfg = str(Path(__file__).parent.resolve()/'DBmodels.cfg'),
-                 models = ('AOR','MIS','FAOR','POS','GUIDE','AORSEARCH')):
+                 models = ('AOR','MIS','FAOR','SCT','POS','GUIDE','AORSEARCH')):
         
         self.browser = mechanicalsoup.StatefulBrowser()
         self.dcsurl = URL(dcsurl)
@@ -175,7 +175,7 @@ class DCS(object):
                         continue
                     
 
-    def _initialize_database(self, models=('AOR','MIS','FAOR','POS','GUIDE','AORSEARCH')):
+    def _initialize_database(self, models=('AOR','MIS','FAOR','SCT','POS','GUIDE','AORSEARCH')):
         """Initialize database, create models dynamically, and register models globally"""
         db_file = self._get_db_file()
         db = SqliteDatabase(str(db_file))
@@ -500,6 +500,21 @@ class DCS(object):
         else:
             return self._get(search, 'FAOR', *args, **kwargs)
 
+    def getSCTs(self, search, *args, **kwargs):
+        if kwargs.get('match'):
+            # return scts in format to match aorids in dossier
+            #key_map = {'NODDWELL':'Nod','REPEATS':'Repeat','AORID':'aorID',
+            #           'DITHER':'Dithers','DITHSCALE':'Scale','FILENAME':'FAORfile',
+            #           'INTTIME':'IntTime','FDUR':'FDUR','SLIT':'Slit','TREQ':'TREQ',
+            #           'DURPERREW':'TREW','TLOS':'TLOS','TLSPN':'TLSPN',
+            #           'rewind':'Rewind','loop':'Loop','TARGET':'Name'}
+            scts = self._get(search, 'SCT', *args, **kwargs)
+            #faors = [{newk:f[k] for k,newk in key_map.items()} for f in faors]
+            scts = {s['AORID']:s for s in scts}
+            return scts
+        else:
+            return self._get(search, 'SCT', *args, **kwargs)
+
 
     def _get(self, search, clsname, *args, **kwargs):
         """Unified interface to DB and DCS fallback"""
@@ -507,12 +522,14 @@ class DCS(object):
                      'MIS':self._query_MIS_table,
                      'GUIDE':self._query_GUIDE_table,
                      'POS':self._query_POS_table,
-                     'FAOR':self._query_FAOR_table}
+                     'FAOR':self._query_FAOR_table,
+                     'SCT':self._query_SCT_table}
         DCS_funcs = {'AOR':self._getObsPlan,
                      'MIS':self._getFlightPlan,
                      'GUIDE':self._getObsPlan,
                      'POS':self._getPOS,
-                     'FAOR':lambda x: None}
+                     'FAOR':lambda x: None,
+                     'SCT':lambda x: None}
 
         getDB = DB_funcs[clsname]
         getDCS = DCS_funcs[clsname]
@@ -736,6 +753,18 @@ class DCS(object):
             
         faors = FAOR.select().where(FAOR.AORID.in_(search))
         return self._proc_res(faors,FAOR, *args, **kwargs)
+
+    def _query_SCT_table(self, search, *args, **kwargs):
+        if isinstance(search,str):
+            search = [search]
+
+        if kwargs.get('delete'):
+            q = SCT.delete().where(SCT.AORID.in_(search))
+            q.execute()
+            return None
+            
+        scts = SCT.select().where(SCT.AORID.in_(search))
+        return self._proc_res(scts, SCT, *args, **kwargs)
 
     def _query_AOR_table_old(self,aorID=None,planID=None,ObsBlkID=None,pos=False,guide=False):
         """Perform DB lookup on AOR table"""

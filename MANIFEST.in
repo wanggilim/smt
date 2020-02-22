@@ -1,0 +1,3 @@
+include dossier/template.tex
+include dcs/DBmodels.cfg
+include fifi/obsmaker.cfg

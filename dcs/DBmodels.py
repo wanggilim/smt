@@ -17,6 +17,7 @@ try:
 except (ModuleNotFoundError,ImportError):
     import MIS as dcsMIS
 #from .POS import POS as dcsPOS
+from fifi import SCT as dcsSCT
 from collections import deque
 from pandas import read_html, concat, DataFrame
 import numpy as np
@@ -57,6 +58,11 @@ def _as_table(rows):
 
 def _as_json(rows):
     return json.dumps(rows,default=str)
+
+def convert_dtypes(row, unitdict):
+    unitdict = {k:STR_TYPE_MAP.get(v,str) for k,v in unitdict.items()}
+    row = {k:unitdict[k](v) if k in unitdict and v is not None else v for k,v in row.items()}
+    return row
 
 def generate_field(key, units, options):
     '''Generate database Field objects for each key'''
@@ -144,10 +150,11 @@ def make_position(request):
     coord = SkyCoord(ra=ra,dec=dec,equinox=equ,unit=(u.deg,u.deg))
     return coord
 
-def combine_AOR_data(name,position,rkeys,dkeys,blkdict,comments,meta):
+def combine_AOR_data(name,position,rkeys,dkeys,dithers,blkdict,comments,meta):
     row = meta.copy()
     row.update(rkeys)
     row.update(dkeys)
+    row.update(dithers)
     row['target'] = name
     try:
         row['RA'],row['DEC'] = position.to_string('hmsdms',sep=':').split()
@@ -228,9 +235,26 @@ def replace_keys(row, keymap):
         if newval:
             row[v] = newval
     return row
+
+def get_fifi_dithers(request):
+    if request.instrument.data.instrumentname.text != 'FIFI-LS':
+        return {'deltaRaV':None,'deltaDecW':None}
+
+    try:
+        offsets = request.instrument.ditheroffsets.find_all('ditheroffset')
+    except:
+        return {'deltaRaV':None,'deltaDecW':None}
+    
+    if not offsets:
+        return {'deltaRaV':None,'deltaDecW':None}
+
+    offsets = ((float(offset.deltarav.text),float(offset.deltadecw.text)) for offset in offsets)
+    dra,ddec = zip(*offsets)
+    dra,ddec = json.dumps(dra), json.dumps(ddec)
+    return {'deltaRaV':dra,'deltaDecW':ddec}
     
 
-def AOR_to_rows(filename, aorcfg):
+def AOR_to_rows(filename, aorcfg, convert_dtype=False):
     """Converts AOR xml files to rows for DB ingestion"""
     with open(filename,'r') as f:
         try:
@@ -273,7 +297,9 @@ def AOR_to_rows(filename, aorcfg):
     # Get instrument config info from request.data
     keys = json.loads(aorcfg['data_keys'])
     fkeys = json.loads(aorcfg['FORCAST_keys'])
+    fikeys = json.loads(aorcfg['FIFI_keys'])
     keys += fkeys.keys()
+    keys += fikeys
 
     data_func = partial(get_keydict,keys=keys)
     dkeys = map(data_func,(r.data for r in requests))
@@ -281,6 +307,9 @@ def AOR_to_rows(filename, aorcfg):
     # replace forcast specific keys
     rep_func = partial(replace_keys,keymap=fkeys)
     dkeys = map(rep_func,dkeys)
+
+    # get fifi dithers
+    dithers = map(get_fifi_dithers,requests)
 
     # Get obsblk info from request.obsplanobsblockinfolist
     try:
@@ -307,8 +336,13 @@ def AOR_to_rows(filename, aorcfg):
 
     # combine all xml data into row
     row_func = partial(combine_AOR_data,blkdict=blkdict,comments=comments,meta=meta)
-    rows = map(row_func,names,positions,rkeys,dkeys)
+    rows = map(row_func,names,positions,rkeys,dkeys,dithers)
 
+    if convert_dtype:
+        units = json.loads(aorcfg['data_units'])
+        con_func = partial(convert_dtypes,unitdict=units)
+        rows = map(con_func,rows)
+        
     return list(rows)
 
 
@@ -430,6 +464,19 @@ def FAOR_to_rows(filename, faorcfg,faor=None):
     rows = map(row_func,config,run)
 
     return list(rows)
+
+
+def SCT_to_rows(filename, sctcfg, sct=None):
+    """Converts SCT file to rows for DB ingestion"""
+    if sct is None:
+        sct = dcsSCT.read_sctfile(filename)
+
+    # save timestamp
+    stats = Path(filename).stat()
+    ts = stats.st_mtime if stats.st_mtime > stats.st_ctime else stats.st_ctime
+    sct['TIMESTAMP'] = ts
+    return [sct]
+        
 
 def AORSEARCH_to_frame(filename, aorsearchcfg):
     """Convert AORSEARCH result to pandas frame"""
@@ -639,6 +686,7 @@ def ModelFactory(name, config, db, register=True):
 CONVERTER_FUNCS = {'AOR':AOR_to_rows,
                    'MIS':MIS_to_rows,
                    'FAOR':FAOR_to_rows,
+                   'SCT':SCT_to_rows,
                    'POS':POS_to_rows,
                    'GUIDE':GUIDE_to_rows,
                    'AORSEARCH':AORSEARCH_to_rows}
@@ -650,6 +698,17 @@ if __name__ == '__main__':
     c = ConfigParser()
     c.read('DBmodels.cfg')
 
+
+    sctfile = '../fifi/202002_FI/LAWRENCE/VS44_FIFI-LS_VS44_08_0071_1.sct'
+    rows = SCT_to_rows(sctfile,c['SCT'])
+    print(rows)
+    exit()
+
+    aorfile = '/home/msgordo1/Downloads/07_0140.aor'
+    rows = AOR_to_rows(aorfile,c['AOR'])
+    print(rows[0])
+    exit()
+    
     misfile = '/home/msgordo1/Downloads/202001_HA_JONAS_WX12.misxml'
     rows = MIS_to_rows(misfile,c['MIS'])
     print(rows)

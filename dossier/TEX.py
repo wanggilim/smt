@@ -42,7 +42,7 @@ warnings.filterwarnings('ignore',category=AstropyUserWarning)
 warnings.filterwarnings('ignore',category=AstropyWarning)
 np.warnings.filterwarnings('ignore')
 
-DEBUG = False
+DEBUG = True
 MP = False if DEBUG else True
 
 if DEBUG is False:
@@ -85,12 +85,12 @@ FCOLOR = '#9467bd'
 FOV = {'A_TOT':(2.8,1.7),'B_TOT':(4.2,2.7),'C_TOT':(4.2,2.7),'D_TOT':(7.4,4.6),'E_TOT':(10.0,6.3),
        'A_POL':(1.4,1.7),'B_POL':(2.1,2.7),'C_POL':(2.1,2.7),'D_POL':(3.7,4.6),'E_POL':(5.0,6.3),
        'A_C2N':(1.4,1.7),'B_C2N':(2.1,2.7),'C_C2N':(2.1,2.7),'D_C2N':(3.7,4.6),'E_C2N':(5.0,6.3),
-       'FORCAST_IMG':(3.4,3.2),'FORCAST_GSM':(.04,3.18)}
+       'FORCAST_IMG':(3.4,3.2),'FORCAST_GSM':(.04,3.18),'FIF_BLUE':(.5,.5),'FIF_RED':(1,1)}
 
 PIXSIZE = {'A_TOT':2.34,'B_TOT':4.00,'C_TOT':4.02,'D_TOT':6.90,'E_TOT':8.62,
            'A_POL':2.34,'B_POL':4.00,'C_POL':4.02,'D_POL':6.90,'E_POL':8.62,
            'A_C2N':2.34,'B_C2N':4.00,'C_C2N':4.02,'D_C2N':6.90,'E_C2N':8.62,
-           'FORCAST_IMG':0.768,'FORCAST_GSM':0.768}
+           'FORCAST_IMG':0.768,'FORCAST_GSM':0.768,'FIF_BLUE':12,'FIF_RED':12}
 
 
 IMGOPTIONS = {'width':0.4*u.deg, 'height':0.4*u.deg,
@@ -102,7 +102,8 @@ IMGOPTIONS = {'width':0.4*u.deg, 'height':0.4*u.deg,
               'observed':False}
 
 TARFOFFSET = {'HAWC_PLUS':3*u.deg,
-              'FORCAST':40.6*u.deg}
+              'FORCAST':40.6*u.deg,
+              'FIFI-LS':0*u.deg}
 
 INST_REPL = {'University':'Univ','Universitaet':'Univ',
              'Department':'Dept',' and':' \&',' und':' \&',
@@ -260,8 +261,11 @@ def make_dithers(center,scale,angle=0*u.deg):
     br = center.directional_offset_by(posangle,-diag)
     return (tl,tr,bl,br)
 
-def make_NMC(center,chopthrow=300*u.arcsec,chopangle=0*u.arcsec):
+def make_NMC(center,chopthrow=300*u.arcsec,chopangle=0*u.arcsec,label=None):
     '''Given a center and chop nod parameters, calculate the nod throws'''
+    if label == 'FIF_RED':
+        pass
+    
     nodA = center.directional_offset_by(chopangle,chopthrow)
     nodB = center.directional_offset_by(180*u.deg+chopangle,chopthrow)
 
@@ -334,6 +338,7 @@ def get_image(overlays,survey='DSS2 Red',width=0.2*u.deg,height=0.2*u.deg,
     if overlays is None or not overlays:
         return None
 
+    # flatten overlays---FIFI has two
     if recenter:
         if isinstance(recenter,SkyCoord):
             center = recenter
@@ -368,6 +373,9 @@ def get_image(overlays,survey='DSS2 Red',width=0.2*u.deg,height=0.2*u.deg,
         fig.show_polygons(overlay['box'],edgecolor=overlay['color'],lw=overlay['linewidth'])
         fig.show_markers(overlay['center'].ra.value,overlay['center'].dec.value,marker='*',edgecolor=overlay['color'])
 
+        if 'overlay2' in overlay:
+            fig.show_polygons(overlay['overlay2']['box'],edgecolor=overlay['color'],lw=overlay['linewidth'])
+
         '''
         if overlay.get('reg'):
             rs = [r for r in overlay['reg'] if r]
@@ -375,6 +383,9 @@ def get_image(overlays,survey='DSS2 Red',width=0.2*u.deg,height=0.2*u.deg,
         '''
 
         if overlay['label']:
+            if 'overlay2' in overlay:
+                #change label to aorid for FIFI
+                overlay['label'] = overlay['aorID']
             if len(overlay['label']) < 6:
                 # note, ignore this used to be (0.87, 0.95)
                 fig.add_label(0.75, 0.95, '%s%s'%('\n\n'*idx,overlay['label']),
@@ -823,6 +834,28 @@ def make_details(tab, tex=True, faor=False):
                                   Column([float(x.split()[0]) for x in detail['TLSPN']],name='TLSPN'))
             
 
+    elif instrument == 'FIFI-LS':
+        keys = ('PrimeArray','aorID','Name','TimePerPoint','Repeat','ChopType','ChopThrow','ChopAngle',
+                'ChopAngleCoordinate','MapRotationAngle','TotalTime')
+        sysmap = {'J2000':'ERF','HORIZON':'SIRF'}
+        key_map = {'MapRotationAngle':'FOVAngle','aorID':'AORID','ChopAngleCoordinate':'Sys','PrimeArray':'Prime',
+                   'TimePerPoint':'NodTime'}
+
+        for t in tab:
+            # change coordsys
+            sys = t['ChopAngleCoordinate']
+            t['ChopAngleCoordinate'] = sysmap.get(sys,sys)
+            t['TotalTime'] = t['TimePerPoint'] * t['Repeat']
+            
+        # keep certain keys
+        detail = [{key:t[key] for key in keys} for t in tab]
+
+        # make table
+        detail = Table(detail,names=keys)
+
+        # rename columns
+        detail.rename_columns(tuple(key_map.keys()),tuple(key_map.values()))
+        
     else:
         #raise NotImplementedError('Instrument %s not implemented. %s' % (instrument, tab[0]['ObsBlkID']))
         warnings.warn('WARNING: Instrument %s not implemented. %s' % (instrument, tab[0]['ObsBlkID']))
@@ -1121,11 +1154,20 @@ def generate_overlays(table):
     for idx,row in enumerate(table):
         row['cidx'] = idx
     overlays = list(map(generate_overlay,table))
+
     for overlay,row in zip(overlays,table):
         row['overlay'] = overlay
+        '''
+        if isinstance(overlay,dict):
+            row['overlay'] = overlay
+        else:
+            # FIFI has two overlays per aorid
+            row['overlayB'] = overlay[0]
+            row['overlayR'] = overlay[1]
+        '''
     return table
 
-def generate_overlay(row,nod=True,dithers=True):
+def generate_overlay(row,nod=True,dithers=True,FIFI_label=None):
     #tab = unique(tab,keys=['RA_aor','DEC_aor'])
 
     if row['aorID'] in ('99_9999_99','--'):
@@ -1143,7 +1185,10 @@ def generate_overlay(row,nod=True,dithers=True):
     # override displayed roll if specified in config
     roll = row.get('roll')
     if isinstance(roll,bool) and roll:
-        roll = float(rolls[0])*u.deg
+        if row['InstrumentName'] == 'FIFI-LS':
+            roll = float(row['MapRotationAngle'])*u.deg
+        else:
+            roll = float(rolls[0])*u.deg
     if isinstance(roll,(float,int,np.float,np.int)):
         roll = roll*u.deg
     elif isinstance(roll,u.Quantity):
@@ -1151,16 +1196,19 @@ def generate_overlay(row,nod=True,dithers=True):
     elif isinstance(roll,str):
         roll = u.Quantity(np.float(roll),u.deg)
     else:
-        roll = float(rolls[0])*u.deg
+        if row['InstrumentName'] == 'FIFI-LS':
+            roll = float(row['MapRotationAngle'])*u.deg
+        else:
+            roll = float(rolls[0])*u.deg
 
     try:
         TARFoffset = TARFOFFSET[row['InstrumentName']]
     except KeyError:
-        # likely wrong instrument
-        return None
+        # likely wrong instrument?
+        TARFoffset = 0*u.deg
 
     # get band and mode for FOV
-    band = row['InstrumentSpectralElement1'].split('_')[-1]
+    band = row['InstrumentSpectralElement1'].split('_')[-1] if 'FIF' not in row['InstrumentSpectralElement1'] else row['InstrumentSpectralElement1']
     mode = row['ObsPlanConfig']
 
     if row['ObsPlanMode'] == 'C2N' and mode == 'TOTAL_INTENSITY':
@@ -1177,101 +1225,132 @@ def generate_overlay(row,nod=True,dithers=True):
             fov = FOV['FORCAST_GSM']
         else:
             fov = FOV['FORCAST_IMG']
-                    
-    width,height = [f*u.arcmin for f in fov]
-    name = '%s %s' % (row['Name'],coord.to_string('hmsdms',precision=2,sep=':'))
 
-    split = True if mode == 'TOT' and label in FOV else False
+    if row['InstrumentName'] == 'FIFI-LS':
+        if FIFI_label:
+            labels = [FIFI_label]
+        else:
+            # make both FIFI cameras
+            labels = ['FIF_BLUE','FIF_RED']
+        overlays = deque()
+        for label in labels:
+            width,height = [f*u.arcmin for f in FOV[label]]
+            name = '%s %s' % (row['Name'],coord.to_string('hmsdms',precision=2,sep=':'))
+            if label == 'FIF_RED' and not FIFI_label:
+                # need to tweak FIFI red boresite
+                coord = coord.directional_offset_by(roll+TARFoffset+90*u.deg,-0.162*u.arcmin)
 
-    if label not in FOV:
-        # FORCAST
-        label = label.replace('_TOT','')
-        label = label.replace('_POL','')
-    
-    overlay = make_box(coord,width,height,roll,TARFoffset,label=label,name=name,
-                       color=COLORS[row['cidx']%len(COLORS)],split=split,aorid=row['aorID'])
-    
-    overlay['roll'] = (float(rolls[0])*u.deg,float(rolls[1])*u.deg)
-
-        
-    if row['NodType'] != 'OTFMAP':
-        # we are chop/nod dithering
-        if dithers and row['DitherPattern'] not in (None,'None'):
-            if row['ChopAngleCoordinate'] == 'Sky':
-                scale = row['DitherScale']*u.arcsec
-            else:
-                try:
-                    scale = row['DitherScale']*PIXSIZE[label]
-                except KeyError:
-                    if 'G' in label:
-                        scale = row['DitherScale']*PIXSIZE['FORCAST_GSM']
-                    else:
-                        scale = row['DitherScale']*PIXSIZE['FORCAST_IMG']
-
-            diths = make_dithers(overlay['center'],scale=scale,angle=roll)
-        
-            overlay['dithers'] = [make_box(dith, width, height, angle=roll, TARFoffset=TARFoffset, label=label, split=split, color=overlay['color'], reglabel='_d',name=name) for dith in diths]
-
-        if nod and row['ObsPlanMode'] == 'C2NC2':
-            chopthrow = row['ChopThrow']*u.arcsec
-            chopangle = row['ChopAngle']*u.deg
-            nodthrow = row['NodThrow']*u.arcsec
-            nodangle = row['NodAngle']*u.deg
-
-            if row['ChopAngleCoordinate'] == 'Array':
-                chopangle += roll
-
-            nodAchopB,nodBchopA,nodBchopB = make_C2NC2(overlay['center'],
-                                                       chopthrow=chopthrow,chopangle=chopangle,
-                                                       nodthrow=nodthrow,nodangle=nodangle)
-            nodAchopBdict = row.copy()
-            nodBchopAdict = row.copy()
-            nodBchopBdict = row.copy()
-
-            for ntab,n in zip((nodAchopBdict,nodBchopAdict,nodBchopBdict),(nodAchopB,nodBchopA,nodBchopB)):
-                ra,dec = n.to_string('hmsdms').split()
-                ntab['RA'] = ra
-                ntab['DEC'] = dec
-
-            overlay['nods'] = [generate_overlay(n, nod=False,dithers=False) \
-                               for n in (nodAchopBdict,nodBchopAdict,nodBchopBdict)]
-
-        elif nod:
-            chopthrow = row['ChopThrow']*u.arcsec
-            chopangle = row['ChopAngle']*u.deg
-
-            if row['ChopAngleCoordinate'] == 'Array':
-                chopangle += roll
-                
-            nodA,nodB = make_NMC(overlay['center'],
-                                 chopthrow=chopthrow,
-                                 chopangle=chopangle)
-
-            nodAdict = row.copy()
-            nodBdict = row.copy()
-            ra,dec = nodA.to_string('hmsdms').split()
-            nodAdict['RA'] = ra
-            nodAdict['DEC'] = dec
-            ra,dec = nodB.to_string('hmsdms').split()
-            nodBdict['RA'] = ra
-            nodBdict['DEC'] = dec
             
-            overlay['nods'] = [generate_overlay(n, nod=False,dithers=False) \
-                               for n in (nodAdict,nodBdict)]
-
-
+            o = make_box(coord,width,height,roll,TARFoffset,label=label,name=name,
+                         color=COLORS[row['cidx']%len(COLORS)],split=False,aorid=row['aorID'])
+            overlays.append(o)
+        overlays = list(overlays)
     else:
-        ampx,ampy = u.Quantity(row['ScanAmplitudeEL'],u.arcsec), \
-                    u.Quantity(row['ScanAmplitudeXEL'],u.arcsec)
-        ampx += width
-        ampy += height
-        overlay['dithers'] = [make_box(coord,ampx,ampy,roll,TARFoffset,label=label,name=name,
-                                       color=COLORS[row['cidx']%len(COLORS)],scan=True,reglabel='scan',
-                                       aorid=row['aorID'])]
+        # HAWC and FORCAST
+        width,height = [f*u.arcmin for f in fov]
+        name = '%s %s' % (row['Name'],coord.to_string('hmsdms',precision=2,sep=':'))
 
-    return overlay
+        split = True if mode == 'TOT' and label in FOV else False
+
+        if label not in FOV:
+            # FORCAST
+            label = label.replace('_TOT','')
+            label = label.replace('_POL','')
+
+        overlays = [make_box(coord,width,height,roll,TARFoffset,label=label,name=name,
+                             color=COLORS[row['cidx']%len(COLORS)],split=split,aorid=row['aorID'])]
+
+    for overlay in overlays:
+        overlay['roll'] = (float(rolls[0])*u.deg,float(rolls[1])*u.deg)
+
+
+        if row['NodType'] != 'OTFMAP':
+            # we are chop/nod dithering
+            if dithers and row['DitherPattern'] not in (None,'None'):
+                if row['ChopAngleCoordinate'] == 'Sky':
+                    scale = row['DitherScale']*u.arcsec
+                else:
+                    try:
+                        scale = row['DitherScale']*PIXSIZE[label]
+                    except KeyError:
+                        if 'G' in label:
+                            scale = row['DitherScale']*PIXSIZE['FORCAST_GSM']
+                        else:
+                            scale = row['DitherScale']*PIXSIZE['FORCAST_IMG']
+
+                diths = make_dithers(overlay['center'],scale=scale,angle=roll)
+
+                overlay['dithers'] = [make_box(dith, width, height, angle=roll, TARFoffset=TARFoffset, label=label, split=split, color=overlay['color'], reglabel='_d',name=name) for dith in diths]
+
+            if nod and row['ObsPlanMode'] == 'C2NC2':
+                chopthrow = row['ChopThrow']*u.arcsec
+                chopangle = row['ChopAngle']*u.deg
+                nodthrow = row['NodThrow']*u.arcsec
+                nodangle = row['NodAngle']*u.deg
+
+                if row['ChopAngleCoordinate'] == 'Array':
+                    chopangle += roll
+
+                nodAchopB,nodBchopA,nodBchopB = make_C2NC2(overlay['center'],
+                                                           chopthrow=chopthrow,chopangle=chopangle,
+                                                           nodthrow=nodthrow,nodangle=nodangle)
+                nodAchopBdict = row.copy()
+                nodBchopAdict = row.copy()
+                nodBchopBdict = row.copy()
+
+                for ntab,n in zip((nodAchopBdict,nodBchopAdict,nodBchopBdict),(nodAchopB,nodBchopA,nodBchopB)):
+                    ra,dec = n.to_string('hmsdms').split()
+                    ntab['RA'] = ra
+                    ntab['DEC'] = dec
+
+                overlay['nods'] = [generate_overlay(n, nod=False,dithers=False) \
+                                   for n in (nodAchopBdict,nodBchopAdict,nodBchopBdict)]
+
+            elif nod:
+                chopthrow = row['ChopThrow']*u.arcsec
+                chopangle = row['ChopAngle']*u.deg
+
+                if row['ChopAngleCoordinate'] == 'Array':
+                    chopangle += roll
+
+                nodA,nodB = make_NMC(overlay['center'],
+                                     chopthrow=chopthrow,
+                                     chopangle=chopangle,label=overlay['label'])
+
+                nodAdict = row.copy()
+                nodBdict = row.copy()
+                
+                ra,dec = nodA.to_string('hmsdms').split()
+                nodAdict['RA'] = ra
+                nodAdict['DEC'] = dec
+                ra,dec = nodB.to_string('hmsdms').split()
+                nodBdict['RA'] = ra
+                nodBdict['DEC'] = dec
+
+                if row['InstrumentName'] == 'FIFI-LS':
+                    # only make current label
+                    fiflabel = overlay['label']
+                else:
+                    fiflabel = None
+                overlay['nods'] = [generate_overlay(n, nod=False,dithers=False, FIFI_label=fiflabel) \
+                                   for n in (nodAdict,nodBdict)]
+
+
+        else:
+            ampx,ampy = u.Quantity(row['ScanAmplitudeEL'],u.arcsec), \
+                        u.Quantity(row['ScanAmplitudeXEL'],u.arcsec)
+            ampx += width
+            ampy += height
+            overlay['dithers'] = [make_box(coord,ampx,ampy,roll,TARFoffset,label=label,name=name,
+                                           color=COLORS[row['cidx']%len(COLORS)],scan=True,reglabel='scan',
+                                           aorid=row['aorID'])]
+
+        overlay['aorID'] = row['aorID']
+        overlay['InstrumentName'] = row['InstrumentName']
+    return overlays
 
 def get_overlay_params(tab):
+    #####UNUSED
     overlays = deque()
     for idx,row in enumerate(tab):
         if 'IMGOVERRIDES' in tab.meta:
@@ -1305,11 +1384,27 @@ def make_figures(table,fdir,reg=False,guidestars=None,irsurvey=None,savefits=Fal
 
     # make defaults from table
     vrows = list(filter(lambda row:row.get('overlay'),table))
-    overlays = [{k:row.get(k,v) for k,v in IMGOPTIONS.items()} for row in vrows]
+    imgoptions = IMGOPTIONS.copy()
+    if vrows and vrows[0]['InstrumentName'] == 'FIFI-LS':
+        imgoptions['width'] = 0.2*u.deg
+        imgoptions['height'] = 0.2*u.deg
+    overlays = [{k:row.get(k,v) for k,v in imgoptions.items()} for row in vrows]
 
     for o,row in zip(overlays,vrows):
         if row.get('overlay'):
-            o.update(row['overlay'])
+            if isinstance(row['overlay'],dict):
+                o.update(row['overlay'])
+            else:
+                # if there is a second overlay (FIFI), add it
+                if len(row['overlay']) == 2:
+                    vals = o.copy()
+                    o['overlay2'] = vals
+                    o.update(row['overlay'][0])
+                    o['overlay2'].update(row['overlay'][1])
+                else:
+                    o.update(row['overlay'][0])
+
+
     #overlays = [row['overlay'] for row in table if row.get('overlay')]
     
     # remove any with 'nofigure' flag
@@ -1389,7 +1484,6 @@ def make_figures(table,fdir,reg=False,guidestars=None,irsurvey=None,savefits=Fal
             fig.add_label(g['COORD'].ra.value, g['COORD'].dec.value, g['Name'])
     '''
 
-
     # show chop/nod/dithers
     for o in overlays:
         if 'dithers' in o:
@@ -1398,8 +1492,30 @@ def make_figures(table,fdir,reg=False,guidestars=None,irsurvey=None,savefits=Fal
                                   linestyle='dashed',alpha=0.7)
         if 'nods' in o:
             for nod in o['nods']:
-                fig.show_polygons(nod['box'],edgecolor=o['color'],lw=1.5,
-                                  linestyle='dotted',alpha=0.7)
+                try:
+                    fig.show_polygons(nod['box'],edgecolor=o['color'],lw=1.5,
+                                      linestyle='dotted',alpha=0.7)
+                except TypeError:
+                    for n in nod:
+                        fig.show_polygons(n['box'],edgecolor=o['color'],lw=1.5,
+                                          linestyle='dotted',alpha=0.7)
+
+        if 'overlay2' in o:
+            o = o.get('overlay2','')
+            if 'dithers' in o:
+                for dith in o['dithers']:
+                    fig.show_polygons(dith['box'],edgecolor=dith['color'],lw=1,
+                                      linestyle='dashed',alpha=0.7)
+            if 'nods' in o:
+                for nod in o['nods']:
+                    try:
+                        fig.show_polygons(nod['box'],edgecolor=o['color'],lw=1.5,
+                                          linestyle='dotted',alpha=0.7)
+                    except TypeError:
+                        for n in nod:
+                            fig.show_polygons(n['box'],edgecolor=o['color'],lw=1.5,
+                                              linestyle='dotted',alpha=0.7)
+            
 
 
     #outfile = fdir/('Leg%02d.png'%tab['Leg'][0])
@@ -1546,6 +1662,17 @@ def match_FAORs(tables,dcs):
                 row.update(match)
     return tables
 
+def match_SCTs(tables,dcs):
+    aorIDs = set((row['aorID'] for table in tables for row in table))
+    scts = dcs.getSCTs(aorIDs,match=True)
+
+    for table in ProgressBar(tables):
+        for row in table:
+            match = scts.get(row['aorID'])
+            if match:
+                row.update(match)
+    return tables
+
 def get_FAOR_map(faordir,keys=None,label=''):
     '''Locate faor files and return file mapping with aorid'''
     #print('Locating .faor files in %s...'%faordir)
@@ -1596,7 +1723,8 @@ def update_with_cfg(table, cfg):
 
     for row,cmap in zip(table,cmaps):
         # add other options
-        cmap.add_map(IMGOPTIONS.copy())
+        imgoptions = IMGOPTIONS.copy()
+        cmap.add_map(imgoptions)
         row.update(cmap.as_dict())
 
     return table
@@ -1608,6 +1736,7 @@ def write_tex_dossier(tables, name,title,filename,
                       mconfig=None,
                       refresh_cache=False,
                       faor=False,
+                      sct=False,
                       posfiles=False,
                       reg=False,
                       dcs=None,local=None,
@@ -1641,7 +1770,11 @@ def write_tex_dossier(tables, name,title,filename,
         print('Matching faors to AORIDs...')
         tables = match_FAORs(tables,dcs)
 
-
+    if sct:
+        # merge sct information
+        print('Matching scts to AORIDs...')
+        tables = match_SCTs(tables,dcs)
+        
     #tables = [[table] if isinstance(table,dict) else table for table in tables]
     #for table in tables:
     #    if 'aorID' not in table[0]:

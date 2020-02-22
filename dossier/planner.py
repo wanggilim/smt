@@ -447,9 +447,9 @@ def plan_obsblock(obsblock,mistab,
         ###cal = True
         ### THIS IS UNSAFE.  WARN INSTEAD.
         #raise RuntimeWarning('ObsBlk %s is empty. Generating FAORs for every AORID in ObsPlan' % leg['ObsBlkID'][0])
-        warnings.warn('ObsBlk %s is empty. Generating FAORs for every AORID in ObsPlan' % leg['ObsBlkID'][0],category=RuntimeWarning)
+        warnings.warn('ObsBlk %s is empty. Generating FAORs for every AORID in ObsPlan' % leg['ObsBlkID'],category=RuntimeWarning)
         for r in aor:
-            r['ObsBlkID'] = leg['ObsBlkID'][0]
+            r['ObsBlkID'] = leg['ObsBlkID']
     #else:
     #    cal = False
     
