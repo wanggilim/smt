@@ -128,6 +128,7 @@ class DCS(object):
             
     def _remove_db(self):
         db_file = self._get_db_file()
+        print('Removing %s' % str(db_file))
         #db_file.unlink(missing_ok=True)
         db_file.unlink()
         return db_file
@@ -137,7 +138,9 @@ class DCS(object):
         """Ingest all downloaded files in cache into database"""
         urlmap = self.cachedir/'astropy/download/py3/urlmap.dir'
         if not urlmap.exists():
-            return False
+            urlmap = self.cachedir/'astropy/download/py3/urlmap.db'
+            if not urlmap.exists():
+                return False
 
         # remove db_file and re-init
         self._remove_db()
@@ -508,8 +511,9 @@ class DCS(object):
             #           'INTTIME':'IntTime','FDUR':'FDUR','SLIT':'Slit','TREQ':'TREQ',
             #           'DURPERREW':'TREW','TLOS':'TLOS','TLSPN':'TLSPN',
             #           'rewind':'Rewind','loop':'Loop','TARGET':'Name'}
+            key_map = {'FILENAME':'SCTfile'}
             scts = self._get(search, 'SCT', *args, **kwargs)
-            #faors = [{newk:f[k] for k,newk in key_map.items()} for f in faors]
+            scts = [{newk:f[k] for k,newk in key_map.items()} for f in scts]
             scts = {s['AORID']:s for s in scts}
             return scts
         else:
