@@ -387,10 +387,13 @@ def _argparse():
     parser.add_argument('-alias',action='append',nargs=2,help='Alias obsblocks (e.g. blk1 is blk2)')
     parser.add_argument('-s','--save-aors',
                         dest='save',action='store_true',
-                        help='Save AORs and proposals to mission folder')
+                        help='Save AORs to mission folder')
+    parser.add_argument('-spdf','--save-pdf',
+                        dest='savepdf',action='store_true',
+                        help='Save AORs and proposal pdfs to mission folder')
     parser.add_argument('-se','--save-aors-exit',
                         dest='sexit',action='store_true',
-                        help='Save AORs and proposals to mission folder and exit without generating dossier')
+                        help='Save AORs to mission folder and exit without generating dossier')
     parser.add_argument('-reg','--save-regs',
                         dest='reg',action='store_true',
                         help='Save region files to mission folder')
@@ -448,10 +451,10 @@ def main():
     for fid,odir in zip(flightids,odirs):
         dcs.getFlightPlan(fid, local=args.local)
 
-        if args.save or args.sexit:
+        if args.save or args.sexit or args.savepdf:
             get_raw_AORs(fid,odir/'aor',
                          dcs=dcs, refresh_cache=args.refresh_cache,
-                         proposal=True,
+                         proposal=args.savepdf,
                          local=args.local)
             if args.sexit:
                 continue
