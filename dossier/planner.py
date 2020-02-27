@@ -200,20 +200,14 @@ def split_leg(utctab, interval, rofrate=None):
     try:
         rofrt = [np.abs(float(x)) for x in utctab['ROFrt']]
     except TypeError:
-        rd = deque()
-        for r in rofrt:
-            try:
-                r = float(x)
-            except TypeError:
-                r = 0
-            rd.append(np.abs(r))
-        rofrt = list(rd)
+        rofrt = [np.abs(float(x)) if x is not None else 0 for x in utctab['ROFrt']]
         
     if interval == 0*u.minute:
         # no interval, so don't split
         start,stop = inittime, times[-1]
         rof = utctab['ROF'][0]
-        rofr = rofrt
+        #rofr = np.max([np.abs(float(x)) for x in utctab['ROFrt']])
+        rofr = np.max(rofrt)
         #label = start.strftime('%H%M')[0]
         label = ''
         intervals.append((start,stop,rof,rofr,label))
@@ -224,8 +218,8 @@ def split_leg(utctab, interval, rofrate=None):
         # find times in interval
         tidx = np.where((times >= start) & (times <= stop))
         rof = utctab['ROF'][tidx][0]  # initial ROF in interval
-        #rofr = np.max([np.abs(float(x)) for x in utctab['ROFrt'][tidx]])  # max ROFrate in interval
-        rofr = rofrt[tidx]
+        rofr = np.max([np.abs(float(x)) if x is not None else 0 for x in utctab['ROFrt'][tidx]])  # max ROFrate in interval
+        #rofr = np.max(rofrt[tidx])
         label = start.strftime('%H%M')[0]
 
         intervals.append((start[0],stop[0],rof,rofr,label))
@@ -239,8 +233,10 @@ def split_leg(utctab, interval, rofrate=None):
         del intervals[0]
         tidx = np.where((times <= stop))
         rof = utctab['ROF'][tidx][0]
-        #rofr = np.max([np.abs(float(x)) for x in utctab['ROFrt'][tidx]])
-        rofr = rofrt[tidx]
+        rofr = np.max([np.abs(float(x)) if x is not None else 0 for x in utctab['ROFrt'][tidx]])
+        #print();print(rofrt)
+        #print(tidx[0])
+        #rofr = np.max(rofrt[tidx[0]])
         intervals.insert(0,(times[0],stop,rof,rofr,label))
         
         # set last interval stop to end of times
@@ -249,8 +245,8 @@ def split_leg(utctab, interval, rofrate=None):
         del intervals[-1]
         tidx = np.where((times >= start))
         rof = utctab['ROF'][tidx][0]
-        #rofr = np.max([np.abs(float(x)) for x in utctab['ROFrt'][tidx]])
-        rofr = rofrt[tidx]
+        rofr = np.max([np.abs(float(x)) if x is not None else 0 for x in utctab['ROFrt'][tidx]])
+        #rofr = np.max(rofrt[tidx[0]])
         intervals.append((start,times[-1],rof,rofr,label))
     
 

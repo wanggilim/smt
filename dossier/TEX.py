@@ -42,12 +42,38 @@ warnings.filterwarnings('ignore',category=AstropyUserWarning)
 warnings.filterwarnings('ignore',category=AstropyWarning)
 np.warnings.filterwarnings('ignore')
 
-DEBUG = True
+DEBUG = False
 MP = False if DEBUG else True
 
 if DEBUG is False:
     log.disable_warnings_logging()
     log.setLevel('ERROR')
+
+
+# FIFI, from obsmaker.cfg
+OBS_REF_BLUE_LINES = ["FIV 44.07", "FeII 51.30", "FeIII 51.68", "OIII 51.81",
+                      "OIII* 51.95", "FeI 54.31", "SI 56.31", "NIII* 57.15",
+                      "NIII 57.32", "PII 60.64", "OI* 62.1", "OI 63.18", "FII 67.20",
+                      "SiI 68.47", "CO 69.07", "CO 70.91", "CO 77.05", "CO 84.41",
+                      "OH* 84.50", "CO 87.19", "FeII 87.38", "OIII 88.35", "AlI 89.24",
+                      "CO 96.77", "CO 104.44", "FeIII 105.37", "FeI 111.18", "CO 118.58",
+                      "NII 121.89", "CO 124.19", "SiI 129.68", "CO 130.37", "Custom"]
+OBS_REF_BLUE_LAMBDAS = np.array([44.070000, 51.300440, 51.680000, 51.814500,
+                                 51.950000, 54.310930, 56.311000, 57.150000,
+                                 57.317000, 60.640000, 62.100000, 63.183705, 67.200000,
+                                 68.473000, 69.0744058, 70.9072390, 77.058693, 84.410721,
+                                 84.500000, 87.190422, 87.384400, 88.356000, 89.237000,
+                                 96.7725080, 104.444952, 105.370000, 111.182800, 118.5807176,
+                                 121.897570, 124.193352, 129.681730, 130.3689279, 130.])
+OBS_REF_RED_LINES = ["CO 104.44", "FeIII 105.37", "FeI 111.18",
+                     "CO 118.58", "NII 121.89", "CO 124.19", "SiI 129.68", "CO* 129.80",
+                     "CO 130.37", "OI 145.52", "CO 153.26", "CII 157.74", "CO 162.81",
+                     "CO 173.63", "CO* 185.00", "CO 185.99", "CO 200.27", "NII 205.17",
+                     "Custom"]
+OBS_REF_RED_LAMBDAS = np.array([104.444952, 105.370000, 111.182800,
+                                118.5807176, 121.897570, 124.193352, 129.681730, 129.800000,
+                                130.3689279, 145.525439, 153.266708, 157.740900, 162.811630,
+                                173.631434, 185.000000, 185.9992957, 200.272476, 205.178230,210.])
 
 # formatters for astropy table columns
 COL_FORMATTER = lambda x: x.replace('_','\_')
@@ -105,7 +131,8 @@ TARFOFFSET = {'HAWC_PLUS':3*u.deg,
               'FORCAST':40.6*u.deg,
               'FIFI-LS':0*u.deg}
 
-INST_REPL = {'University':'Univ','Universitaet':'Univ',
+INST_REPL = {'California Institute of Technology':'Caltech',
+             'University':'Univ','Universitaet':'Univ',
              'Department':'Dept',' and':' \&',' und':' \&',
              'Institute':'Inst','Institut':'Inst',
              'Observatory':'Obs',
@@ -113,6 +140,7 @@ INST_REPL = {'University':'Univ','Universitaet':'Univ',
              'Astrophysics':'Ast','Astrophysik':'Ast',
              'Dr. ':'','Mr. ':'','Ms. ':'','Mrs. ':'',
              'Prof ':'','Prof. ':'',
+             'Karl-Schwarzschild-Observatorium':'KSO',
              '. ':'.\ '}
 
 HAWC_SIO = {
@@ -838,8 +866,10 @@ def make_details(tab, tex=True, faor=False):
         keys = ('PrimeArray','aorID','Name','TimePerPoint','Repeat','ChopType','ChopThrow','ChopAngle',
                 'ChopAngleCoordinate','MapRotationAngle','TotalTime')
         sysmap = {'J2000':'ERF','HORIZON':'SIRF'}
-        key_map = {'MapRotationAngle':'FOVAngle','aorID':'AORID','ChopAngleCoordinate':'Sys','PrimeArray':'Prime',
-                   'TimePerPoint':'NodTime'}
+        key_map = {'MapRotationAngle':'FAngle','aorID':'AORID','ChopAngleCoordinate':'Sys','PrimeArray':'Prime',
+                   'TimePerPoint':'NodTime','ChopType':'ChpType','WavelengthBlue':r'Blue$\lambda$','WavelengthRed':r'Red$\lambda$'}
+        aor_keys = ('Redshift','Dichroic','WavelengthBlue','WavelengthRed','NumPtsRA','NumPtsDec')
+        sct_keys = ('',)
 
         for t in tab:
             # change coordsys
@@ -848,6 +878,8 @@ def make_details(tab, tex=True, faor=False):
             t['TotalTime'] = t['TimePerPoint'] * t['Repeat']
             
         # keep certain keys
+        #if 'SCTfile' in tab[0]:
+        keys += aor_keys
         detail = [{key:t[key] for key in keys} for t in tab]
 
         # make table
@@ -855,6 +887,7 @@ def make_details(tab, tex=True, faor=False):
 
         # rename columns
         detail.rename_columns(tuple(key_map.keys()),tuple(key_map.values()))
+
         
     else:
         #raise NotImplementedError('Instrument %s not implemented. %s' % (instrument, tab[0]['ObsBlkID']))
@@ -872,7 +905,7 @@ def make_details(tab, tex=True, faor=False):
                            'ScanAmp','ScanRate','NodThrow')   # make a zero blank
         for col in ('NodTime','Repeat','ScanDur','ChopThrow','ChopAngle','ScanTime',
                     'ScanAmp','ScanRate','NodThrow','NodAngle','TotalTime','IntTime',
-                    'Rewind','Loop','Dithers','FDUR','TREW','TLOS','Scale'):
+                    'Rewind','Loop','Dithers','FDUR','TREW','TLOS','Scale','FAngle','Redshift'):
             try:
                 try:
                     floats = detail[col].filled(0)
@@ -900,7 +933,7 @@ def make_details(tab, tex=True, faor=False):
                 detail[col].format = INT_FORMATTER
 
         # set units
-        detail.meta['units'] = {'NodTime':'s','ChopThrow':r'$^{\prime\prime}$','ChopAngle':r'$^\circ$','ScanDur':'s','ScanAmp':r'$^{\prime\prime}$','ScanRate':'$^{\prime\prime}$/s','TotalTime':'s','NodDwell':'s','NodAngle':r'$^\circ$','NodThrow':r'$^{\prime\prime}$','IntTime':'s','FDUR':'s','TLOS':'s','TREW':'s','TLSPN':r'$^\circ$'}
+        detail.meta['units'] = {'NodTime':'s','ChopThrow':r'$^{\prime\prime}$','ChopAngle':r'$^\circ$','ScanDur':'s','ScanAmp':r'$^{\prime\prime}$','ScanRate':'$^{\prime\prime}$/s','TotalTime':'s','NodDwell':'s','NodAngle':r'$^\circ$','NodThrow':r'$^{\prime\prime}$','IntTime':'s','FDUR':'s','TLOS':'s','TREW':'s','TLSPN':r'$^\circ$',r'Blue$\lambda$':r'$\mu$m',r'Red$\lambda$':r'$\mu$m'}
 
         caption = '\\captionline{Observation details %s:}{}' % tab[0]['ObsBlkID']
         detail.meta['caption'] = caption.replace('_','\_')
@@ -926,15 +959,50 @@ def make_details(tab, tex=True, faor=False):
             d2_keep = filter(lambda x: x in detail2.colnames, ('AORID','Repeat','NodTime','Dithers','Scale','Loop',
                                                                'FDUR','TREW','TLOS','TLSPN','IntTime'))
 
-            detail.keep_columns(list(d_keep))
+            detail.keep_columns(tuple(d_keep))
             detail.rename_column('TotalTime','ReqTime')
             detail.meta['units']['ReqTime'] = 's'
 
-            detail2.keep_columns(list(d2_keep))
+            detail2.keep_columns(tuple(d2_keep))
             if 'Scale' in detail2.colnames:
                 detail2.meta['units']['Scale'] = r'$^{\prime\prime}$'
 
             detail = [detail,detail2]
+
+
+            # if FIFI, split into two tables
+        elif instrument == 'FIFI-LS': # and 'SCTfile' in tab[0]
+            detail2 = detail.copy()
+
+            d_keep = filter(lambda x:x in detail.colnames, ('Prime','AORID','Name','NodTime','Repeat','ChpType','ChpT','ChpA','Sys',
+                                                            'FAngle','TotalTime'))
+            d2_keep = filter(lambda x:x in detail2.colnames, ('AORID','Redshift','Dichroic',r'Blue$\lambda$',r'Red$\lambda$'))
+
+            detail.keep_columns(tuple(d_keep))
+            detail2.keep_columns(tuple(d2_keep))
+
+            blue_order = ['M2' if row[r'Blue$\lambda$'] < 71 else 'M1' for row in detail2]
+            detail2.add_column(Column(blue_order,name='BOrder'),index=2)
+            detail2.replace_column('Dichroic',Column(['D%s'%row['Dichroic'].split('_')[0] for row in detail2],name='Dichroic'))
+            #detail2[r'Blue$\lambda$'].format = '%.3f'
+            #detail2[r'Red$\lambda$'].format = '%.3f'
+            # get closest wavelength for lambda cols
+            blue_lam = np.array([np.float(x) if x is not None else np.nan for x in detail2[r'Blue$\lambda$']])
+            blue_str = (np.argmin(np.abs(OBS_REF_BLUE_LAMBDAS-x)) for x in blue_lam)
+            blue_str = (OBS_REF_BLUE_LINES[x].split() for x in blue_str)
+            blue_str = ['%.2f %s'%(line,' '.join(x[0:-1])) for line,x in zip(blue_lam,blue_str)]
+            detail2.replace_column(r'Blue$\lambda$',Column(blue_str,name=r'Blue$\lambda$'))
+            red_lam = np.array([np.float(x) if x is not None else np.nan for x in detail2[r'Red$\lambda$']])
+            red_str = (np.argmin(np.abs(OBS_REF_RED_LAMBDAS-x)) for x in red_lam)
+            red_str = (OBS_REF_RED_LINES[x].split() for x in red_str)
+            red_str = ['%.2f %s'%(line,' '.join(x[0:-1])) for line,x in zip(red_lam,red_str)]
+            detail2.replace_column(r'Red$\lambda$',Column(red_str,name=r'Red$\lambda$'))
+            
+            if 'caption' in detail2.meta:
+                del detail2.meta['caption']
+
+            detail = [detail,detail2]
+
             
         # return tex string
         detail = generate_details_tex(detail)
@@ -963,6 +1031,9 @@ def generate_details_tex(detail):
     for d in detail:
         # col align param must be special for boldface header line
         col_align = ['c']*len(d.colnames)
+        #for lcol in (r'Blue$\lambda$',r'Red$\lambda$'):
+        #    if lcol in d.colnames:
+        #        col_align[d.colnames.index(lcol)] = 'l'
         col_align = '|^'.join(col_align)
         col_align = '|$%s|'%col_align
 

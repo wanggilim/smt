@@ -8,7 +8,7 @@ import json
 from http.cookies import SimpleCookie
 from collections import deque
 import tempfile
-from astropy.utils.data import download_file, clear_download_cache, is_url_in_cache
+from astropy.utils.data import download_file, clear_download_cache, is_url_in_cache, get_cached_urls
 from astropy.config import set_temp_cache,get_cache_dir
 from astropy.table import Table,Column,vstack,join
 import datetime
@@ -136,46 +136,49 @@ class DCS(object):
 
     def _force_db_sync(self):
         """Ingest all downloaded files in cache into database"""
+        '''
         urlmap = self.cachedir/'astropy/download/py3/urlmap.dir'
         if not urlmap.exists():
             urlmap = self.cachedir/'astropy/download/py3/urlmap.db'
             if not urlmap.exists():
                 return False
+        '''
 
         # remove db_file and re-init
         self._remove_db()
         self.db = self._initialize_database(self.models)
 
-        print('Resyncing local DB with cache @ %s'%urlmap)
+        print('Resyncing local DB with cache')
         with set_temp_cache(self.cachedir):
-            with open(urlmap,'r') as f:
-                for line in ProgressBar(f.readlines()):
-                    streamfile = line.split("', (")[0][1:]
-                    if 'fileType=misxml&fpid=' in streamfile:
-                        # MIS file
-                        cfile = download_file(streamfile,show_progress=False,cache=True)
-                        rows = MIS.to_rows(cfile, self.mcfg['MIS'])
-                        if rows:
-                            MIS.replace_rows(self.db, rows)
-                    elif 'obsplanID=' in streamfile:
-                        # AOR file
-                        cfile = download_file(streamfile,show_progress=False,cache=True)
-                        rows = AOR.to_rows(cfile, self.mcfg['AOR'])
-                        if rows:
-                            AOR.replace_rows(self.db, rows)
-                        grows = GUIDE.to_rows(cfile, self.mcfg['GUIDE'])
-                        if grows:
-                            GUIDE.replace_rows(self.db, grows)
-                    elif 'pos_' in streamfile:
-                        cfile = download_file(streamfile,show_progress=False,cache=True)
-                        rows = POS.to_rows(cfile, self.mcfg['POS'])
-                        if rows:
-                            POS.replace_rows(self.db, rows)
-                        #rows = GUIDE.to_rows(cfile, self.mcfg['GUIDE'])
-                        #if rows:
-                        #    GUIDE.replace_rows(self.db, rows)
-                    else:
-                        continue
+            cached_urls = get_cached_urls()
+            for line in ProgressBar(cached_urls):
+                #streamfile = line.split("', (")[0][1:]
+                streamfile = line
+                if 'fileType=misxml&fpid=' in streamfile:
+                    # MIS file
+                    cfile = download_file(streamfile,show_progress=False,cache=True)
+                    rows = MIS.to_rows(cfile, self.mcfg['MIS'])
+                    if rows:
+                        MIS.replace_rows(self.db, rows)
+                elif 'obsplanID=' in streamfile:
+                    # AOR file
+                    cfile = download_file(streamfile,show_progress=False,cache=True)
+                    rows = AOR.to_rows(cfile, self.mcfg['AOR'])
+                    if rows:
+                        AOR.replace_rows(self.db, rows)
+                    grows = GUIDE.to_rows(cfile, self.mcfg['GUIDE'])
+                    if grows:
+                        GUIDE.replace_rows(self.db, grows)
+                elif 'pos_' in streamfile:
+                    cfile = download_file(streamfile,show_progress=False,cache=True)
+                    rows = POS.to_rows(cfile, self.mcfg['POS'])
+                    if rows:
+                        POS.replace_rows(self.db, rows)
+                    #rows = GUIDE.to_rows(cfile, self.mcfg['GUIDE'])
+                    #if rows:
+                    #    GUIDE.replace_rows(self.db, rows)
+                else:
+                    continue
                     
 
     def _initialize_database(self, models=('AOR','MIS','FAOR','SCT','POS','GUIDE','AORSEARCH')):
