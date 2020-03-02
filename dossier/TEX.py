@@ -804,7 +804,7 @@ def make_details(tab, tex=True, faor=False):
         # keep certain keys
         if 'FAORfile' in tab[0]:
             keys += faor_keys
-        detail = [{key:t[key] for key in keys} for t in tab]
+        detail = [{key:t.get(key,None) for key in keys} for t in tab]
 
         # make table
         detail = Table(detail,names=keys)
@@ -819,7 +819,8 @@ def make_details(tab, tex=True, faor=False):
 
         # if all modes are NMC, drop nod/c2nc2 params
         if all((mode == 'NMC' for mode in detail['Type'])):
-            detail.remove_columns(('NodAngle','NodThrow'))
+            if 'NodAngle' in detail.colnames and 'NodThrow' in detail.colnames:
+                detail.remove_columns(('NodAngle','NodThrow'))
             if 'Loop' in detail.colnames:
                 detail.remove_column('Loop')
 

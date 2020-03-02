@@ -150,11 +150,12 @@ def make_position(request):
     coord = SkyCoord(ra=ra,dec=dec,equinox=equ,unit=(u.deg,u.deg))
     return coord
 
-def combine_AOR_data(name,position,rkeys,dkeys,dithers,blkdict,comments,meta):
+def combine_AOR_data(name,position,rkeys,dkeys,dithers,maps,blkdict,comments,meta):
     row = meta.copy()
     row.update(rkeys)
     row.update(dkeys)
     row.update(dithers)
+    row.update(maps)
     row['target'] = name
     try:
         row['RA'],row['DEC'] = position.to_string('hmsdms',sep=':').split()
@@ -169,6 +170,7 @@ def combine_AOR_data(name,position,rkeys,dkeys,dithers,blkdict,comments,meta):
         # THIS IS NEW AND POSSIBLY DANGEROUS
         if row.get('TotalTime') and row.get('Repeat'):
             row['TotalTime'] = float(row['TotalTime']) * float(row['Repeat'])
+
     return row
 
 def combine_GUIDE_data(target,aorid,dkeys,akeys,mkeys,blkdict,meta):
@@ -252,6 +254,26 @@ def get_fifi_dithers(request):
     dra,ddec = zip(*offsets)
     dra,ddec = json.dumps(dra), json.dumps(ddec)
     return {'deltaRaV':dra,'deltaDecW':ddec}
+
+def get_great_map(request):
+    if request.instrument.data.instrumentname.text != 'GREAT':
+        return {'MapPos':None}
+
+    try:
+        maps = request.instrument.mappos.find_all('indexedlocation')
+    except:
+        return {'MapPos':None}
+    
+    if not maps:
+        return {'MapPos':None}
+
+    maps = [[m['label'],int(m.index.text),float(m.ra.text),float(m.dec.text)] for m in maps]
+    maps = json.dumps(maps)
+    
+    #offsets = ((float(offset.deltarav.text),float(offset.deltadecw.text)) for offset in offsets)
+    #dra,ddec = zip(*offsets)
+    #dra,ddec = json.dumps(dra), json.dumps(ddec)
+    return {'MapPos':maps}
     
 
 def AOR_to_rows(filename, aorcfg, convert_dtype=False):
@@ -298,8 +320,10 @@ def AOR_to_rows(filename, aorcfg, convert_dtype=False):
     keys = json.loads(aorcfg['data_keys'])
     fkeys = json.loads(aorcfg['FORCAST_keys'])
     fikeys = json.loads(aorcfg['FIFI_keys'])
+    grkeys = json.loads(aorcfg['GREAT_keys'])
     keys += fkeys.keys()
     keys += fikeys
+    #keys += grkeys
 
     data_func = partial(get_keydict,keys=keys)
     dkeys = map(data_func,(r.data for r in requests))
@@ -310,6 +334,9 @@ def AOR_to_rows(filename, aorcfg, convert_dtype=False):
 
     # get fifi dithers
     dithers = map(get_fifi_dithers,requests)
+
+    # get great maps
+    maps = map(get_great_map,requests)
 
     # Get obsblk info from request.obsplanobsblockinfolist
     try:
@@ -336,7 +363,7 @@ def AOR_to_rows(filename, aorcfg, convert_dtype=False):
 
     # combine all xml data into row
     row_func = partial(combine_AOR_data,blkdict=blkdict,comments=comments,meta=meta)
-    rows = map(row_func,names,positions,rkeys,dkeys,dithers)
+    rows = map(row_func,names,positions,rkeys,dkeys,dithers,maps)
 
     if convert_dtype:
         units = json.loads(aorcfg['data_units'])
