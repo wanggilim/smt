@@ -500,8 +500,9 @@ class DCS(object):
                        'DURPERREW':'TREW','TLOS':'TLOS','TLSPN':'TLSPN',
                        'rewind':'Rewind','loop':'Loop','TARGET':'Name'}
             faors = self._get(search, 'FAOR', *args, **kwargs)
-            faors = [{newk:f[k] for k,newk in key_map.items()} for f in faors]
-            faors = {f['aorID']:f for f in faors}
+            if faors:
+                faors = [{newk:f[k] for k,newk in key_map.items()} for f in faors]
+                faors = {f['aorID']:f for f in faors}
             return faors
         else:
             return self._get(search, 'FAOR', *args, **kwargs)
@@ -564,6 +565,8 @@ class DCS(object):
                 cfiles = [getDCS(s,raw=True) for s in search]
             res = getDB(search,*args,**kwargs)
             if not res:
+                if clsname in ('FAOR','SCT'):
+                    return None
                 cfiles = [getDCS(search,raw=True) for s in search]
                 res = getDB(search,*args,**kwargs)
         return res
@@ -730,7 +733,7 @@ class DCS(object):
         
         aors = AOR.select().where((AOR.aorID.in_(search))  |
                                   (AOR.planID.in_(search)) |
-                                  (AOR.ObsBlkID.in_(search))).order_by(AOR.ObsBlkID,AOR.order,AOR.aorID)
+                                  (AOR.ObsBlkID.in_(search))).order_by(AOR.ObsBlkID,AOR.order,AOR.aornum)
         return self._proc_res(aors, AOR, *args, **kwargs)
 
     def _query_GUIDE_table(self, search, *args, **kwargs):
@@ -815,7 +818,7 @@ class DCS(object):
                 # query multiple, and allow for planIDs, ObsBlkIDs
                 aors = AOR.select().where((AOR.aorID.in_(aorID))  |
                                           (AOR.planID.in_(aorID)) |
-                                          (AOR.ObsBlkID.in_(aorID))).order_by(AOR.ObsBlkID,AOR.order,AOR.aorID).dicts()
+                                          (AOR.ObsBlkID.in_(aorID))).order_by(AOR.ObsBlkID,AOR.order,AOR.aornum).dicts()
                 #aors = [aor.__data__ for aor in aors]
                 aors = list(aors)
                 aors = aors if aors else None
@@ -846,9 +849,9 @@ class DCS(object):
                 
         elif planID:
             if isinstance(planID,str):
-                aors = AOR.select().where(AOR.planID==planID).order_by(AOR.ObsBlkID,AOR.order,AOR.aorID).dicts()
+                aors = AOR.select().where(AOR.planID==planID).order_by(AOR.ObsBlkID,AOR.order,AOR.aornum).dicts()
             else:
-                aors = AOR.select().where(AOR.planID.in_(planID)).order_by(AOR.ObsBlkID,AOR.order,AOR.aorID).dicts()
+                aors = AOR.select().where(AOR.planID.in_(planID)).order_by(AOR.ObsBlkID,AOR.order,AOR.aornum).dicts()
             aors = list(aors)
             aors = aors if aors else None
 
@@ -879,9 +882,9 @@ class DCS(object):
             
         elif ObsBlkID:
             if isinstance(ObsBlkID,str):
-                aors = AOR.select().where(AOR.ObsBlkID==ObsBlkID).order_by(AOR.ObsBlkID,AOR.order,AOR.aorID).dicts()
+                aors = AOR.select().where(AOR.ObsBlkID==ObsBlkID).order_by(AOR.ObsBlkID,AOR.order,AOR.aornum).dicts()
             else:
-                aors = AOR.select().where(AOR.ObsBlkID.in_(ObsBlkID)).order_by(AOR.ObsBlkID,AOR.order,AOR.aorID).dicts()
+                aors = AOR.select().where(AOR.ObsBlkID.in_(ObsBlkID)).order_by(AOR.ObsBlkID,AOR.order,AOR.aornum).dicts()
             aors = list(aors)
             aors = aors if aors else None
             

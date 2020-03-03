@@ -170,6 +170,10 @@ def combine_AOR_data(name,position,rkeys,dkeys,dithers,maps,blkdict,comments,met
         # THIS IS NEW AND POSSIBLY DANGEROUS
         if row.get('TotalTime') and row.get('Repeat'):
             row['TotalTime'] = float(row['TotalTime']) * float(row['Repeat'])
+    elif row['InstrumentName'] == 'GREAT':
+        row['order'] = 0
+
+    row['aornum'] = int(row['aorID'].split('_')[-1])
 
     return row
 
@@ -267,7 +271,7 @@ def get_great_map(request):
     if not maps:
         return {'MapPos':None}
 
-    maps = [[m['label'],int(m.index.text),float(m.ra.text),float(m.dec.text)] for m in maps]
+    maps = [[m['label'],int(m.find('index').text),float(m.ra.text),float(m.dec.text)] for m in maps]
     maps = json.dumps(maps)
     
     #offsets = ((float(offset.deltarav.text),float(offset.deltadecw.text)) for offset in offsets)
@@ -323,7 +327,7 @@ def AOR_to_rows(filename, aorcfg, convert_dtype=False):
     grkeys = json.loads(aorcfg['GREAT_keys'])
     keys += fkeys.keys()
     keys += fikeys
-    #keys += grkeys
+    keys += grkeys
 
     data_func = partial(get_keydict,keys=keys)
     dkeys = map(data_func,(r.data for r in requests))
@@ -725,6 +729,12 @@ if __name__ == '__main__':
     c = ConfigParser()
     c.read('DBmodels.cfg')
 
+
+    aorfile = '/home/msgordo1/Downloads/07_0068.aor'
+    rows = AOR_to_rows(aorfile,c['AOR'])
+    print(rows[0])
+    exit()
+    
 
     sctfile = '../fifi/202002_FI/LAWRENCE/VS44_FIFI-LS_VS44_08_0071_1.sct'
     rows = SCT_to_rows(sctfile,c['SCT'])

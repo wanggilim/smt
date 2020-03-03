@@ -893,6 +893,7 @@ def make_details(tab, tex=True, faor=False):
     else:
         #raise NotImplementedError('Instrument %s not implemented. %s' % (instrument, tab[0]['ObsBlkID']))
         warnings.warn('WARNING: Instrument %s not implemented. %s' % (instrument, tab[0]['ObsBlkID']))
+        print()
         print('WARNING: Instrument %s not implemented. %s' % (instrument, tab[0]['ObsBlkID']))
         return ''
 
@@ -1126,22 +1127,24 @@ def make_positions(tab, tex=True):
         name = t['POSName'] if t.get('POSName') else t['target']
         coord = SkyCoord(ra=t['RA'],dec=t['DEC'],unit=(u.hourangle,u.deg))
         ra,dec = coord.to_string('hmsdms',sep=':',precision=2).split()
-        order = t['order']
-        rows.append((aorid,name,ra,dec,order))
+        order = t.get('order',0)
+        #order = t['order']
+        num = t.get('aornum',0)
+        rows.append((aorid,name,ra,dec,order,num))
 
     if not rows:
         return ''
-    position = Table(rows=list(rows),names=('AORID','Name','RA','DEC','Order'))
+    position = Table(rows=list(rows),names=('AORID','Name','RA','DEC','Order','aornum'))
     position.meta['caption'] = '\\captionline{Positions}{}'
 
     # if all positions are the same, remove duplicates
     origlen = len(position)
     position = unique(position,keys=('RA','DEC'))
-    position.sort(['Order','AORID'])
+    position.sort(['Order','aornum','AORID'])
     if len(position) == 1 and origlen != 1:
         position['AORID'][0] = '_'.join(position['AORID'][0].split('_')[0:2]) + '_*'
 
-    position.remove_column('Order')
+    position.remove_columns(('Order','aornum'))
     if tex:
         for col in ['AORID','Name']:
             position[col].format = COL_FORMATTER
@@ -1726,6 +1729,8 @@ def copy_comments(filename):
 def match_FAORs(tables,dcs):
     aorIDs = set((row['aorID'] for table in tables for row in table))
     faors = dcs.getFAORs(aorIDs,match=True)
+    if faors is None:
+        return tables
 
     for table in ProgressBar(tables):
         for row in table:
