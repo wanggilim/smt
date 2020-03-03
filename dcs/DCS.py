@@ -515,10 +515,13 @@ class DCS(object):
             #           'INTTIME':'IntTime','FDUR':'FDUR','SLIT':'Slit','TREQ':'TREQ',
             #           'DURPERREW':'TREW','TLOS':'TLOS','TLSPN':'TLSPN',
             #           'rewind':'Rewind','loop':'Loop','TARGET':'Name'}
-            key_map = {'FILENAME':'SCTfile','AORID':'aorID'}
+            #key_map = {'FILENAME':'SCTfile','AORID':'aorID'}
             scts = self._get(search, 'SCT', *args, **kwargs)
             if scts:
-                scts = [{newk:f[k] for k,newk in key_map.items()} for f in scts]
+                #scts = [{newk:f[k] for k,newk in key_map.items()} for f in scts]
+                for sct in scts:
+                    sct['aorID'] = sct.pop('AORID')
+                    sct['SCTfile'] = sct.pop('FILENAME')
                 scts = {s['aorID']:s for s in scts}
             return scts
         else:

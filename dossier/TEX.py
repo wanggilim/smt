@@ -7,6 +7,7 @@ from io import StringIO
 from astropy.wcs import WCS
 from astropy.coordinates import SkyCoord
 import astropy.units as u
+from astropy import constants
 from astropy.io import fits
 import numpy as np
 import re
@@ -49,6 +50,8 @@ if DEBUG is False:
     log.disable_warnings_logging()
     log.setLevel('ERROR')
 
+
+c_km_s = constants.c.to(u.km/u.s).value
 
 # FIFI, from obsmaker.cfg
 OBS_REF_BLUE_LINES = ["FIV 44.07", "FeII 51.30", "FeIII 51.68", "OIII 51.81",
@@ -870,7 +873,7 @@ def make_details(tab, tex=True, faor=False):
         key_map = {'MapRotationAngle':'FAngle','aorID':'AORID','ChopAngleCoordinate':'Sys','PrimeArray':'Prime',
                    'TimePerPoint':'NodTime','ChopType':'ChpType','WavelengthBlue':r'Blue$\lambda$','WavelengthRed':r'Red$\lambda$'}
         aor_keys = ('Redshift','Dichroic','WavelengthBlue','WavelengthRed','NumPtsRA','NumPtsDec')
-        sct_keys = ('',)
+        sct_keys = ('DITHMAP_NUMPOINTS','REDSHIFT')
 
         for t in tab:
             # change coordsys
@@ -879,15 +882,26 @@ def make_details(tab, tex=True, faor=False):
             t['TotalTime'] = t['TimePerPoint'] * t['Repeat']
             
         # keep certain keys
-        #if 'SCTfile' in tab[0]:
+        if 'SCTfile' in tab[0]:
+            keys += sct_keys
         keys += aor_keys
-        detail = [{key:t[key] for key in keys} for t in tab]
+        detail = [{key:t.get(key,None) for key in keys} for t in tab]
 
         # make table
         detail = Table(detail,names=keys)
 
         # rename columns
         detail.rename_columns(tuple(key_map.keys()),tuple(key_map.values()))
+
+        if 'DITHMAP_NUMPOINTS' in detail.colnames:
+            detail['MapPos'] = [int(x) if x is not None else None for x in detail['DITHMAP_NUMPOINTS']]
+        else:
+            detail['MapPos'] = [int(ra)*int(dec) if ra is not None and dec is not None else None \
+                                for ra,dec in zip(detail['NumPtsRA'],detail['NumPtsDec'])]
+
+        if 'REDSHIFT' in detail.colnames:
+            redshift = [np.float(x) * c_km_s for x in detail['REDSHIFT']]
+            detail.replace_column('Redshift',Column(redshift,name='Redshift'))
         
     else:
         #raise NotImplementedError('Instrument %s not implemented. %s' % (instrument, tab[0]['ObsBlkID']))
@@ -975,9 +989,10 @@ def make_details(tab, tex=True, faor=False):
         elif instrument == 'FIFI-LS': # and 'SCTfile' in tab[0]
             detail2 = detail.copy()
 
-            d_keep = filter(lambda x:x in detail.colnames, ('Prime','AORID','Name','NodTime','Repeat','ChpType','ChopThrow','ChopAngle','Sys',
+            d_keep = filter(lambda x:x in detail.colnames, ('Prime','AORID','Name','NodTime','Repeat','ChpType',
+                                                            'ChopThrow','ChopAngle','Sys',
                                                             'FAngle','TotalTime'))
-            d2_keep = filter(lambda x:x in detail2.colnames, ('AORID','Redshift','Dichroic',r'Blue$\lambda$',r'Red$\lambda$'))
+            d2_keep = filter(lambda x:x in detail2.colnames, ('AORID','Redshift','Dichroic',r'Blue$\lambda$',r'Red$\lambda$','MapPos'))
 
             detail.keep_columns(tuple(d_keep))
             detail2.keep_columns(tuple(d2_keep))
@@ -998,6 +1013,9 @@ def make_details(tab, tex=True, faor=False):
             red_str = (OBS_REF_RED_LINES[x].split() for x in red_str)
             red_str = ['%.2f %s'%(line,' '.join(x[0:-1])) for line,x in zip(red_lam,red_str)]
             detail2.replace_column(r'Red$\lambda$',Column(red_str,name=r'Red$\lambda$'))
+
+            if 'MapPos' in detail2:
+                detail2.rename_column('MapPos',r'\#Dith')
             
             if 'caption' in detail2.meta:
                 del detail2.meta['caption']
@@ -1742,6 +1760,7 @@ def match_SCTs(tables,dcs):
     aorIDs = set((row['aorID'] for table in tables for row in table))
     scts = dcs.getSCTs(aorIDs,match=True)
     if scts is None:
+        print('lol')
         return tables
 
     for table in ProgressBar(tables):
