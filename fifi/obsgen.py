@@ -34,7 +34,7 @@ def process_aor(tup,ocfg,mcfg):
     write_func = partial(dcsSCT.write_files,odir=odir)
     files = list(map(write_func,scts))
     for f,s in zip(files,scts):
-        s['FILENAME'] = f[0]
+        s['FILENAME'] = Path(f[0]).resolve()
         # save timestamp
         stats = Path(f[0]).stat()
         ts = stats.st_mtime if stats.st_mtime > stats.st_ctime else stats.st_ctime

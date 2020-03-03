@@ -888,7 +888,6 @@ def make_details(tab, tex=True, faor=False):
 
         # rename columns
         detail.rename_columns(tuple(key_map.keys()),tuple(key_map.values()))
-
         
     else:
         #raise NotImplementedError('Instrument %s not implemented. %s' % (instrument, tab[0]['ObsBlkID']))
@@ -935,7 +934,7 @@ def make_details(tab, tex=True, faor=False):
                 detail[col].format = INT_FORMATTER
 
         # set units
-        detail.meta['units'] = {'NodTime':'s','ChopThrow':r'$^{\prime\prime}$','ChopAngle':r'$^\circ$','ScanDur':'s','ScanAmp':r'$^{\prime\prime}$','ScanRate':'$^{\prime\prime}$/s','TotalTime':'s','NodDwell':'s','NodAngle':r'$^\circ$','NodThrow':r'$^{\prime\prime}$','IntTime':'s','FDUR':'s','TLOS':'s','TREW':'s','TLSPN':r'$^\circ$',r'Blue$\lambda$':r'$\mu$m',r'Red$\lambda$':r'$\mu$m'}
+        detail.meta['units'] = {'NodTime':'s','ChopThrow':r'$^{\prime\prime}$','ChopAngle':r'$^\circ$','ScanDur':'s','ScanAmp':r'$^{\prime\prime}$','ScanRate':'$^{\prime\prime}$/s','TotalTime':'s','NodDwell':'s','NodAngle':r'$^\circ$','NodThrow':r'$^{\prime\prime}$','IntTime':'s','FDUR':'s','TLOS':'s','TREW':'s','TLSPN':r'$^\circ$',r'Blue$\lambda$':r'$\mu$m',r'Red$\lambda$':r'$\mu$m','Redshift':'km/s','FAngle':r'$^\circ$'}
 
         caption = '\\captionline{Observation details %s:}{}' % tab[0]['ObsBlkID']
         detail.meta['caption'] = caption.replace('_','\_')
@@ -976,7 +975,7 @@ def make_details(tab, tex=True, faor=False):
         elif instrument == 'FIFI-LS': # and 'SCTfile' in tab[0]
             detail2 = detail.copy()
 
-            d_keep = filter(lambda x:x in detail.colnames, ('Prime','AORID','Name','NodTime','Repeat','ChpType','ChpT','ChpA','Sys',
+            d_keep = filter(lambda x:x in detail.colnames, ('Prime','AORID','Name','NodTime','Repeat','ChpType','ChopThrow','ChopAngle','Sys',
                                                             'FAngle','TotalTime'))
             d2_keep = filter(lambda x:x in detail2.colnames, ('AORID','Redshift','Dichroic',r'Blue$\lambda$',r'Red$\lambda$'))
 
@@ -1742,6 +1741,8 @@ def match_FAORs(tables,dcs):
 def match_SCTs(tables,dcs):
     aorIDs = set((row['aorID'] for table in tables for row in table))
     scts = dcs.getSCTs(aorIDs,match=True)
+    if scts is None:
+        return tables
 
     for table in ProgressBar(tables):
         for row in table:
