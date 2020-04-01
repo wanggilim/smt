@@ -63,14 +63,15 @@ This will grab all the flights associated with that flight series.
 - Leg7_GAVIN_07_0225_1
 
   The options include:
-```
-width:  Width of the figure in degrees (default=0.4).
-height:  Height of the figure in degrees (default=0.4).
-recenter:  Specify a new center for the figure, rather than the first position in the ObsBlk.  The format is any string accepted by astropy SkyCoord (e.g. 16:20:53.50 -35:47:00.0).
-nofigure:  If 'true' or 'yes', do not display the figure for this leg/ObsBlk/planID.
-roll:  Override rotation of field angle to specified value (in degrees east of north).
-survey:  Make images from this survey (default=DSS2 Red).  This can be any survey available to astroquery.skyview.  See https://astroquery.readthedocs.io/en/latest/skyview/skyview.html for a list.
-vmin:  Override aplpy's default vmin for the image.
-vmax:  Override aplpy's default vmax for the image.
-invert: If 'false' or 'no', do not invert the colorscale (default is 'true': black on white).
-```
+
+- width:  Width of the figure in degrees (default=0.4).
+- height:  Height of the figure in degrees (default=0.4).
+- recenter:  Specify a new center for the figure, rather than the first position in the ObsBlk.  The format is any string accepted by astropy SkyCoord (e.g. 16:20:53.50 -35:47:00.0).
+- nofigure:  If 'true' or 'yes', do not display the figure for this leg/ObsBlk/planID.
+- roll:  Override rotation of field angle to specified value (in degrees east of north).
+- survey:  Make images from this survey (default=DSS2 Red).  This can be any survey available to astroquery.skyview.  See https://astroquery.readthedocs.io/en/latest/skyview/skyview.html for a list.
+- vmin:  Override aplpy's default vmin for the image.
+- vmax:  Override aplpy's default vmax for the image.
+- invert: If 'false' or 'no', do not invert the colorscale (default is 'true': black on white).
+
+
