@@ -8,7 +8,8 @@ from astropy.utils.console import ProgressBar
 def main():
     parser = argparse.ArgumentParser(description='Download AORs locally')
     parser.add_argument('planids',nargs='+',help='Input planID(s)')
-    parser.add_argument('-o',type=str,help='Output directory (default=.flight series)')
+    parser.add_argument('-o',type=str,default='.',
+                        help='Output directory (default=.)')
     parser.add_argument('-pdf',action='store_true',
                         help='Download proposal pdfs as well')
     parser.add_argument('-r','--refresh-cache',
