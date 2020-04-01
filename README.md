@@ -48,19 +48,19 @@ This will grab all the flights associated with that flight series.
 
    The section headers (in brackets) specify what the options refer to.  The section can be of an ObsBlk, planID, or aorID, applying those options to all legs in all flights with that ID. Alternatively, the section header can be specific to a certain flight, or even a certain leg.  The program will search first for the most specific criteria in reverse order as below.
 
-07_0225
-OB_07_0225_01
-07_0225_1
+- 07_0225
+- OB_07_0225_01
+- 07_0225_1
 
-GAVIN
-GAVIN_07_0225
-GAVIN_OB_07_0225_01
-GAVIN_07_0225_1
+- GAVIN
+- GAVIN_07_0225
+- GAVIN_OB_07_0225_01
+- GAVIN_07_0225_1
 
-Leg7_GAVIN
-Leg7_GAVIN_07_0225
-Leg7_GAVIN_OB_07_0225_01
-Leg7_GAVIN_07_0225_1
+- Leg7_GAVIN
+- Leg7_GAVIN_07_0225
+- Leg7_GAVIN_OB_07_0225_01
+- Leg7_GAVIN_07_0225_1
 
   The options include:
 ```
