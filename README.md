@@ -44,7 +44,7 @@ This will grab all the flights associated with that flight series.
 
    Finally, there are a few options that can be overridden with a config file.  An example is attached, and can be run as:
 
-    sof-dossier 202001_HA -v A -local /path/to/init/ -cfg 202001_HA.cfg.
+    sof-dossier 201909_HA -v A -cfg 201909_HA.cfg
 
    The section headers (in brackets) specify what the options refer to.  The section can be of an ObsBlk, planID, or aorID, applying those options to all legs in all flights with that ID. Alternatively, the section header can be specific to a certain flight, or even a certain leg.  The program will search first for the most specific criteria in reverse order as below.
 
@@ -63,7 +63,7 @@ Leg7_GAVIN_OB_07_0225_01
 Leg7_GAVIN_07_0225_1
 
   The options include:
-
+```
 width:  Width of the figure in degrees (default=0.4).
 height:  Height of the figure in degrees (default=0.4).
 recenter:  Specify a new center for the figure, rather than the first position in the ObsBlk.  The format is any string accepted by astropy SkyCoord (e.g. 16:20:53.50 -35:47:00.0).
@@ -73,3 +73,4 @@ survey:  Make images from this survey (default=DSS2 Red).  This can be any surve
 vmin:  Override aplpy's default vmin for the image.
 vmax:  Override aplpy's default vmax for the image.
 invert: If 'false' or 'no', do not invert the colorscale (default is 'true': black on white).
+```
