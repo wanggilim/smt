@@ -19,6 +19,8 @@ XMLPARSER = 'lxml-xml'
 KEYS = ['config','run','NODDWELL','REPEATS','loop','endloop','STOP','rewind']
 CKEYS = ('FlightPlan','Leg','Leg Dur','Obs Dur','Tot Dur','Start','ROF')
 
+PIX_SCALE = 0.77 # arcsec/pix
+
 # setup logging
 log = logging.getLogger(__file__)
 
@@ -133,83 +135,12 @@ class FAOR(object):
         runs = list(filter(lambda x: x is not None,runs))
         runs = [FAOR._proc_run_block(run) for run in runs]
 
-
-        '''
-        for idx,run in enumerate(runs):
-            comments = list(takewhile(lambda line: line[0].lstrip() == '#' and 'config' not in line, run))
-            comments = ''.join(filter(lambda line:line.strip() != '#' and '# RUN' not in line,comments)) # remove blank comments and join
-            r = list(dropwhile(lambda line: line[0].lstrip() == '#' and 'config' not in line, run))
-            r = [line.split() for line in r]
-            r = filter(lambda x: x, r)
-            r = [pair if len(pair) == 2 else (pair[0],'') for pair in r]
-            r = OrderedDict(r)
-            r['COMMENT'] = comments
-            r.move_to_end('COMMENT',last=False)
-            runs[idx] = r
-
-        print(runs)
-        print(len(runs))
-        exit()
-        '''
-        
-        '''
-        runs = []
-        skip = False
-        
-        for j,idx in enumerate(runstartidx):
-            # starting at each config line, go until next config line
-            if skip:
-                skip = False
-                continue
-            
-            run = list(takewhile(lambda line: not (('config' in line) or ('#config' in line) or ('EOF' in line)),runlines[idx+1:]))
-            if any(['config' in run]):
-                # valid run
-                runs.append(run)
-            else:
-                # go until next runstart
-                try:
-                    run = runlines[idx:runstartidx[j+1]-1]
-                    if any(['config' in run]):
-                        runs.append(run)
-                        skip = True
-                        continue
-                    else:
-                        # likely '# RUN BLOCK'
-                        run = runlines[idx:runstartidx[j+2]-1]
-                        runs.append(run)
-                        skip = True
-                        continue
-                except IndexError:
-                    # this is the last one
-                    run = list(takewhile(lambda line: 'EOF' not in line, runlines[idx:]))
-                runs.append(run)
-
-        for idx,run in enumerate(runs):
-            comments = list(takewhile(lambda line: line[0].lstrip() == '#' and 'config' not in line, run))
-            comments = ''.join(filter(lambda line:line.strip() != '#' and '# RUN' not in line,comments)) # remove blank comments and join
-            r = list(dropwhile(lambda line: line[0].lstrip() == '#' and 'config' not in line, run))
-            r = [line.split() for line in r]
-            r = filter(lambda x: x, r)
-            r = [pair if len(pair) == 2 else (pair[0],'') for pair in r]
-            r = OrderedDict(r)
-            r['COMMENT'] = comments
-            r.move_to_end('COMMENT',last=False)
-            runs[idx] = r
-
-        # duplicates can come through 
-        _,unique_runs = np.unique([run.get('#config') if run.get('#config') else run['config'] for run in runs],return_index=True)
-        runs = list(np.array(runs)[sorted(unique_runs)])
-        [print(x) for x in runs]
-        print(len(runs))
-        exit()
-        '''
-
         aor = '_'.join(configs[0]['AORID'].split('_')[0:2])
         root = '_'.join((aor,preamble['TARGET']))
         faor = cls(root,preamble,configs,runs)
 
         if aorids is not None:
+            # only keep specific aorids in list (usually from an obsblk)
             faor.keep_aorids(aorids)
         return faor
 
@@ -547,9 +478,9 @@ def fix_dither(request):
     dithcoord = data.find('DitherCoordinate')
     if dithcoord and dithcoord.string == 'Array':
         for dRA, dDec in zip(instrument.find_all('deltaRaV'),instrument.find_all('deltaDecW')):
-            foo = float(dRA.string)/0.77
+            foo = float(dRA.string)/PIX_SCALE
             dRA.string = str('%.1f' % foo)  #float(dRA.text)/0.76)
-            foo = float(dDec.string)/0.77
+            foo = float(dDec.string)/PIX_SCALE
             dDec.string = str('%.1f' % foo)  #float(dDec.text)/0.76)
 
     # if DITHER exists AND there are no ditherOffsets -> DITHER = '0'
@@ -684,7 +615,6 @@ def get_target_data(request):
 
 def replace_badchar(string):
     """ replace some reserved characters with '_' 
-    see http://en.wikipedia.org/wiki/Filename for a list
     """
     string = string.replace('/', '_')
     string = string.replace('\\', '_')
@@ -701,13 +631,6 @@ def FO_rename_tags(requests):
         Output: XML
     """
     # create list oldkey (USPOT tags) and newkey (FORCAST tags)
-    #newkey,oldkey = [list(x) for x in zip(*(Tmap+Imap))]
-    #newkey,oldkey = KEYS_LIST
-
-    # rename oldkey to newkey
-    #for idx, tag in enumerate(oldkey):
-    #    for element in vector.iter(tag):
-    #        element.tag = newkey[idx]
     for r in requests:
         for k,v in KEYS_MAP.items():
             try:
@@ -718,15 +641,14 @@ def FO_rename_tags(requests):
     for r in requests:
         # If the DITHCOORD keyword is Array, then the DITHERN RA and DEC
         # (deltaRaV and deltaDecW) values are divided by 0.77
-        #if r.instrument.findtext('instrument/data/DITHCOORD') == 'Array':
         instrument = r.instrument
         data = instrument.data
         dithcoord = data.find('DITHCOORD')
         if dithcoord and dithcoord.string == 'Array':
             for dRA, dDec in zip(instrument.find_all('deltaRaV'),instrument.find_all('deltaDecW')):
-                foo = float(dRA.string)/0.77
+                foo = float(dRA.string)/PIX_SCALE
                 dRA.string = str('%.1f' % foo)  #float(dRA.text)/0.76)
-                foo = float(dDec.string)/0.77
+                foo = float(dDec.string)/PIX_SCALE
                 dDec.string = str('%.1f' % foo)  #float(dDec.text)/0.76)
 
         # if DITHER exists AND there are no ditherOffsets -> DITHER = '0'
@@ -826,8 +748,8 @@ def FO_clean_aor(requests):
         else:
             d['BORESITE'] = 'LSLIT'
 
-        # IRSCRTYPE value determination (available in SSpot v2.4.1 and up)
-        # only IMAGING_* have no IRSourceType defined in SSpot, so set value
+        # IRSCRTYPE value determination (available in USpot v2.4.1 and up)
+        # only IMAGING_* have no IRSourceType defined in USpot, so set value
         # to 'Unknown'
         if d['IRSRCTYPE'] in ('IRSourceType',None):
             d['IRSRCTYPE'] = 'Unknown'
@@ -849,6 +771,7 @@ def FO_clean_aor(requests):
 
     for t,r,e in zip(targets,requests,extra_data):
         if r.target['class'] in ('TargetMovingSingle','SofiaTargetMovingSingle'):
+            # non-sidereal
             t['RA'] = '0.0'
             t['DEC'] = '0.0'
             t['PMRA'] = 'UNKNOWN'
@@ -921,8 +844,6 @@ def look_ahead(configs, runs):
 
 def proc_aorid(combo, requests, PropID):
     '''Process aorids in configs'''
-    #tree = ET.parse(aorfile)
-    #vector = tree.find('list/vector')
 
     inst = combo[1]
     if inst != 'FORCAST':
@@ -933,13 +854,6 @@ def proc_aorid(combo, requests, PropID):
     # remove non-relevant AORs
     vector = list(filter(lambda r:(r.target.find('name').string,r.instrument.data.InstrumentName.string) == combo,
                          requests))
-    '''
-    for elem in requests:
-        name = elem.find('target/name').text
-        inst = elem.find('instrument/data/InstrumentName').text
-        if (name, inst) != combo:
-            vector.remove(elem)
-    '''
 
     # create root, PropID_Target_Inst
     root = PropID + '_' + combo[0] # + '_' + combo[1]  ### don't need _FORCAST
@@ -949,10 +863,8 @@ def proc_aorid(combo, requests, PropID):
 
 
     data = [(int(r.instrument.data.order.string),r) for r in vector]
-    #data = [(int(elem.findtext('instrument/data/order')),elem) for elem in vector]
     data.sort(key=lambda x: x[0])  # sort by priority only
     # insert the last item (second item; element) from each tuple
-    #vector[:] = [item[-1] for item in data]
     vector = [d[1] for d in data]
 
     # get the AORID of each AOR
@@ -985,15 +897,9 @@ def AOR_to_FAORdicts(aorfile, aorids=None, comment=False):
 
     # parse input file
     log.info('Parsing %s' % aorfile)
-    #tree = ET.parse(aorfile)
 
-    #vector = tree.find('list/vector')
     with open(aorfile,'r') as f:
         soup = BeautifulSoup(f.read(),XMLPARSER)
-    #print(len([item for item in vector]))
-    #print(soup.find('list/vector'))
-    #print(len(soup.find('list/vector')))
-    #exit()
 
     requests = soup.find_all('Request')
 
@@ -1045,56 +951,15 @@ def AOR_to_FAORdicts(aorfile, aorids=None, comment=False):
 
     return faors
 
-'''
-    # Extract Target from each AOR
-    ##targets = [(item.text) for item in vector.findall('Request/target/name')]
-    targets = map(lambda r: r.target.find('name').string, requests)
-    # Extract Instrument from each AOR
-    ##instruments = [(item.text) for item in vector.findall('Request/instrument/data/InstrumentName')]
-    instruments = map(lambda r: r.instrument.data.InstrumentName.string, requests)
-
-    # Unique combinations of target and instrument
-    target_inst = list(set(zip(targets,instruments)))
-
-    #vectors = map(lambda combo: filter(
-    
-    exit()
-
-    # get Proposal ID
-    #PropID = tree.find('list/ProposalInfo/ProposalID').text
-    PropID = soup.AORs.list.ProposalInfo.ProposalID
-    try:
-        PropID = PropID.string
-    except AttributeError:
-        PropID = None
-    if PropID in (None,''):
-        PropID = "00_0000"    # indicates no PropID
-
-    # Loop over Target-Instrument combo
-    proc_func = partial(proc_aorid,requests=requests,PropID=PropID)
-    #faors = (proc_aorid(tree, PropID, combo) for combo in target_inst)
-    faors = ProgressBar.map(proc_func,target_inst,multiprocess=False)
-    faors = (FAOR(root,preamble,config,run) for root,preamble,config,run in faors)
-    faors = list(filter(lambda faor: faor.preamble is not None, faors))
-
-    # only keep faors for selected aorids
-    if aorids is not None:
-        if isinstance(aorids,str):
-            aorids = [aorids]
-        # keep only aorids in config and run specified
-        [faor.keep_aorids(aorids,comment=comment) for faor in faors]
-
-    return faors
-'''
-
 
 def main():
     parser = argparse.ArgumentParser(description='AOR to FAOR translator')
     parser.add_argument('aors',nargs='+',help='.aor file(s) to process')
+    parser.add_argument('-o',metavar='outdir',type=str,default='.',help="Output directory (default='.')")
 
     args = parser.parse_args()
+    odir = Path(args.o)
 
-    #logging.basicConfig(stream=sys.stdout, level=logging.INFO)
     logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(message)s')
 
     for aorfile in args.aors:
@@ -1104,21 +969,11 @@ def main():
         # Write out basic FAORs
         for faor in faors:
             # Make output directory
-            outdir = Path('_'.join(faor.root.split('_')[0:2])) # PropID
-            outdir.mkdir(exist_ok=True)
+            outdir = odir/Path('_'.join(faor.root.split('_')[0:2])) # PropID
+            outdir.mkdir(exist_ok=True,parents=True)
 
-            outfile = (outdir/faor.root).with_suffix('.basic.faor')
+            outfile = str((outdir/faor.root).with_suffix('.basic.faor')).replace(',','_')
             faor.write(outfile)
 
 if __name__ == '__main__':
     main()
-    #f = AOR_to_FAORdicts('/home/msgordo1/Projects/AOR_translator/201910_FO_vC/GIMLI/07_0149.aor')
-    #exit()
-    #f = FAOR.read('../AOR_translator/201906_FO_v6/DEBORAH/faors/Leg07__07_0053_HR_5171A.faor')
-    #f.config[0] = FAOR.modify_dithers(f.config[0],10,10)
-    #print(f.config[0])
-    #f = FAOR.read('/home/gordon/Projects/AOR_translator/201906_FO_v0/DAPHNE/faors/Leg06__07_0155_NGC3603-f3-1.faor')
-    #f = FAOR.read('/home/gordon/Projects/FAOR/OTTO/06_0162/06_0162_CYGXN46_FORCAST.basic.faor')
-    #f = FAOR.read('/home/gordon/Projects/AOR_translator/201906_FO_v0/DAPHNE/faors/Leg09__07_0049_HD_100546_(1).faor')
-    #print(f.get_comments_as_tables())
-    #f.write('temp.faor')
