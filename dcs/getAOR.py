@@ -18,7 +18,7 @@ def main():
 
     args = parser.parse_args()
 
-    d = DCS(refresh_cache=args.refresh_cache)
+    dcs = DCS.DCS(refresh_cache=args.refresh_cache)
 
     odir = Path(args.o)
     odir.mkdir(parents=True,exist_ok=True)
