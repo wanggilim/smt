@@ -301,7 +301,7 @@ def generate_dossier(flightid, odir,
     output = odir/('%s.tex'%flightid)
 
     print()
-    print('Generating %s...' % output)
+    print('Generating %s ...' % output)
     TEX.write_tex_dossier(legs, name, title, output,
                           template=template,
                           config=config,

@@ -596,6 +596,12 @@ class DCS(object):
             if len(fnames) == 1:
                 return fnames.pop()
             else:
+                ### likely requires a sof-refresh
+                for fname in fnames.copy():
+                    if not Path(fname).exists():
+                        fnames.pop(fname)
+                if len(fnames) == 1:
+                    return fnames.pop()
                 return fnames
 
         if kwargs.get('as_table'):

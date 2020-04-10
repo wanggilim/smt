@@ -136,6 +136,7 @@ TARFOFFSET = {'HAWC_PLUS':3*u.deg,
 
 INST_REPL = {'California Institute of Technology':'Caltech',
              'University':'Univ','Universitaet':'Univ',
+             '&':'\&',
              'Department':'Dept',' and':' \&',' und':' \&',
              'Institute':'Inst','Institut':'Inst',
              'Observatory':'Obs',
@@ -669,8 +670,8 @@ def make_details(tab, tex=True, faor=False):
     instrument = tab[0]['InstrumentName']
     if instrument == 'HAWC_PLUS':
         #keys = ('ObsPlanConfig','aorID','Name','InstrumentSpectralElement1','Repeat','NodTime','ChopThrow','ChopAngle','ScanTime','ScanAmplitudeEL','ScanAmplitudeXEL','ScanRate','ChopAngleCoordinate')
-        keys = ('ObsPlanConfig','aorID','target','InstrumentSpectralElement1','Repeat','NodTime','ChopThrow','ChopAngle','ScanTime','ScanAmplitudeEL','ScanAmplitudeXEL','ScanRate','ChopAngleCoordinate')
-        key_map = {'ObsPlanConfig':'Mode','aorID':'AORID','ChopAngleCoordinate':'Sys','InstrumentSpectralElement1':'Band/Bore','ScanAmplitudeEL':'ScanAmp','target':'Name'}
+        keys = ('ObsPlanConfig','aorID','target','InstrumentSpectralElement1','Repeat','NodTime','ChopThrow','ChopAngle','ScanTime','ScanAmplitudeEL','ScanAmplitudeXEL','ScanRate','ChopAngleCoordinate','duration')
+        key_map = {'ObsPlanConfig':'Mode','aorID':'AORID','ChopAngleCoordinate':'Sys','InstrumentSpectralElement1':'Band/Bore','ScanAmplitudeEL':'ScanAmp','target':'Name','duration':'EstDur'}
 
         # replace some values
         for t in tab:
@@ -738,6 +739,9 @@ def make_details(tab, tex=True, faor=False):
 
         # remove extra scanamp col
         detail.remove_column('ScanAmplitudeXEL')
+
+        # make duration in min
+        detail['EstDur'] = [np.round(x/60) for x in detail['EstDur']]
 
         # if all modes are scanning, drop chop/nod params
         if all((mode in ('LIS','LISPOL','BOX') for mode in detail['Mode'])):
@@ -918,7 +922,7 @@ def make_details(tab, tex=True, faor=False):
         # set int formatter
         blank_zero_cols = ('ScanDur','ChopThrow','ScanTime','NodTime',
                            'ScanAmp','ScanRate','NodThrow')   # make a zero blank
-        for col in ('NodTime','Repeat','ScanDur','ChopThrow','ChopAngle','ScanTime',
+        for col in ('NodTime','Repeat','ScanDur','ChopThrow','ChopAngle','ScanTime','EstDur',
                     'ScanAmp','ScanRate','NodThrow','NodAngle','TotalTime','IntTime',
                     'Rewind','Loop','Dithers','FDUR','TREW','TLOS','Scale','FAngle','Redshift'):
             try:
@@ -948,7 +952,7 @@ def make_details(tab, tex=True, faor=False):
                 detail[col].format = INT_FORMATTER
 
         # set units
-        detail.meta['units'] = {'NodTime':'s','ChopThrow':r'$^{\prime\prime}$','ChopAngle':r'$^\circ$','ScanDur':'s','ScanAmp':r'$^{\prime\prime}$','ScanRate':'$^{\prime\prime}$/s','TotalTime':'s','NodDwell':'s','NodAngle':r'$^\circ$','NodThrow':r'$^{\prime\prime}$','IntTime':'s','FDUR':'s','TLOS':'s','TREW':'s','TLSPN':r'$^\circ$',r'Blue$\lambda$':r'$\mu$m',r'Red$\lambda$':r'$\mu$m','Redshift':'km/s','FAngle':r'$^\circ$'}
+        detail.meta['units'] = {'NodTime':'s','ChopThrow':r'$^{\prime\prime}$','ChopAngle':r'$^\circ$','ScanDur':'s','ScanTime':'s','ScanAmp':r'$^{\prime\prime}$','ScanRate':'$^{\prime\prime}$/s','TotalTime':'s','NodDwell':'s','NodAngle':r'$^\circ$','NodThrow':r'$^{\prime\prime}$','IntTime':'s','FDUR':'s','TLOS':'s','TREW':'s','TLSPN':r'$^\circ$',r'Blue$\lambda$':r'$\mu$m',r'Red$\lambda$':r'$\mu$m','Redshift':'km/s','FAngle':r'$^\circ$','EstDur':'min'}
 
         caption = '\\captionline{Observation details %s:}{}' % tab[0]['ObsBlkID']
         detail.meta['caption'] = caption.replace('_','\_')

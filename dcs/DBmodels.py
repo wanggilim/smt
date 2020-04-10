@@ -150,13 +150,14 @@ def make_position(request):
     coord = SkyCoord(ra=ra,dec=dec,equinox=equ,unit=(u.deg,u.deg))
     return coord
 
-def combine_AOR_data(name,position,rkeys,dkeys,dithers,maps,blkdict,comments,meta):
+def combine_AOR_data(name,position,duration,rkeys,dkeys,dithers,maps,blkdict,comments,meta):
     row = meta.copy()
     row.update(rkeys)
     row.update(dkeys)
     row.update(dithers)
     row.update(maps)
     row['target'] = name
+    row['duration'] = duration
     try:
         row['RA'],row['DEC'] = position.to_string('hmsdms',sep=':').split()
     except AttributeError:
@@ -319,6 +320,7 @@ def AOR_to_rows(filename, aorcfg, convert_dtype=False):
     # Get target name and position info from request
     names = (r.target.find('name').text for r in requests)
     positions = (make_position(r) for r in requests)
+    durations = (r.est.duration.text for r in requests)
 
     # Get instrument config info from request.data
     keys = json.loads(aorcfg['data_keys'])
@@ -367,7 +369,7 @@ def AOR_to_rows(filename, aorcfg, convert_dtype=False):
 
     # combine all xml data into row
     row_func = partial(combine_AOR_data,blkdict=blkdict,comments=comments,meta=meta)
-    rows = map(row_func,names,positions,rkeys,dkeys,dithers,maps)
+    rows = map(row_func,names,positions,durations,rkeys,dkeys,dithers,maps)
 
     if convert_dtype:
         units = json.loads(aorcfg['data_units'])
