@@ -540,7 +540,7 @@ def make_overview(leg, tex=True):
     '''Make table of overview stats for leg'''
 
     # overview cols to extract
-    ocols = ('Start','ObsDur','Target','ObsBlkID','Priority','RA','DEC')
+    ocols = ('Start','ObsDur','Target','ObsBlkID','Priority','RA','DEC','NAIFID')
 
     # metacols
     hcols = ('Leg','Name','PI')
@@ -630,6 +630,8 @@ def generate_overview_tex(overview, metakeys=('header','footer')):
         ra,dec = coord.to_string('hmsdms',sep=':',precision=2).split()
         overview['RA'][0] = ra
         overview['DEC'][0] = dec
+    if overview['NAIFID'][0] in (None,''):
+        overview.remove_column('NAIFID')
 
     # safe convert obsblkid,target
     for col in ('ObsBlkID','Target'):

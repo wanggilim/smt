@@ -150,7 +150,7 @@ def make_position(request):
     coord = SkyCoord(ra=ra,dec=dec,equinox=equ,unit=(u.deg,u.deg))
     return coord
 
-def combine_AOR_data(name,position,duration,rkeys,dkeys,dithers,maps,blkdict,comments,meta):
+def combine_AOR_data(name,naifid,position,duration,rkeys,dkeys,dithers,maps,blkdict,comments,meta):
     row = meta.copy()
     row.update(rkeys)
     row.update(dkeys)
@@ -158,6 +158,7 @@ def combine_AOR_data(name,position,duration,rkeys,dkeys,dithers,maps,blkdict,com
     row.update(maps)
     row['target'] = name
     row['duration'] = duration
+    row['NAIFID'] = naifid
     try:
         row['RA'],row['DEC'] = position.to_string('hmsdms',sep=':').split()
     except AttributeError:
@@ -319,6 +320,8 @@ def AOR_to_rows(filename, aorcfg, convert_dtype=False):
 
     # Get target name and position info from request
     names = (r.target.find('name').text for r in requests)
+    naifids = (r.target.find('naifid') for r in requests)
+    naifids = (n.text if n else None for n in naifids)
     positions = (make_position(r) for r in requests)
     durations = (r.est.duration.text for r in requests)
 
@@ -369,7 +372,7 @@ def AOR_to_rows(filename, aorcfg, convert_dtype=False):
 
     # combine all xml data into row
     row_func = partial(combine_AOR_data,blkdict=blkdict,comments=comments,meta=meta)
-    rows = map(row_func,names,positions,durations,rkeys,dkeys,dithers,maps)
+    rows = map(row_func,names,naifids,positions,durations,rkeys,dkeys,dithers,maps)
 
     if convert_dtype:
         units = json.loads(aorcfg['data_units'])
@@ -467,8 +470,11 @@ def FAOR_to_rows(filename, faorcfg,faor=None):
         faor = dcsFAOR.read(filename)
         
     # Get meta data
-    meta = {key:faor.preamble[key] for key in json.loads(faorcfg['meta_keys'])}
-    meta['FlightName'] = meta['FlightPlan'].split('_')[-1]
+    meta = {key:faor.preamble.get(key) for key in json.loads(faorcfg['meta_keys'])}
+    try:
+        meta['FlightName'] = meta['FlightPlan'].split('_')[-1]
+    except AttributeError:
+        meta['FlightName'] = None
     meta['FILENAME'] = str(Path(filename).resolve())
     meta['planID'] = '_'.join(faor.config[0]['AORID'].split('_')[0:-1])
     meta['fkey'] = 'Leg%s_%s' % (meta['Leg'],meta['FlightPlan'])
@@ -490,7 +496,8 @@ def FAOR_to_rows(filename, faorcfg,faor=None):
 
     # get dithscale and comment data
     for fc,c,m in zip(faor.config,config,comments):
-        c.update(m)
+        if m:
+            c.update(m)
 
     # combine all xml data into row
     row_func = partial(combine_FAOR_data,meta=meta)
@@ -731,7 +738,16 @@ if __name__ == '__main__':
     c = ConfigParser()
     c.read('DBmodels.cfg')
 
+    aorfile = '/home/gordon/Downloads/uspot/faortest.aor'
+    rows = AOR_to_rows(aorfile,c['AOR'])
+    print(rows[0])
+    exit()
 
+    exit()
+    faorfile = '/home/gordon/Downloads/uspot/00_0000/00_0000_Venus.basic.faor'
+    rows = FAOR_to_rows(faorfile,c['FAOR'])
+    print(rows)
+    exit()
     aorfile = '/home/msgordo1/Downloads/07_0068.aor'
     rows = AOR_to_rows(aorfile,c['AOR'])
     print(rows[0])

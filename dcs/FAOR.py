@@ -312,6 +312,11 @@ class FAOR(object):
                 # first line is name
                 meta = {'name':lines[0]}
 
+                if len(lines) == 1:
+                    # no comments
+                    tabs.append(None)
+                    continue
+
                 # second line contains obs details
                 dets = lines[1].split(',')
                 dets = {k:v.strip() for k,v in zip(('Mode','Obs Type','Dithers','TLSPN'),dets)}
@@ -353,9 +358,10 @@ class FAOR(object):
 
     def get_comments_as_dicts(self):
         tabs = self.get_comments_as_tables()
-        dicts = [{col:t[col][0] for col in t.colnames} for t in tabs]
+        dicts = [{col:t[col][0] for col in t.colnames} if t else None for t in tabs]
         for d,t in zip(dicts,tabs):
-            d.update(t.meta)
+            if d:
+                d.update(t.meta)
         return dicts
                 
 
@@ -447,19 +453,20 @@ Imap = [
     
 # FORCAST faor <- USPOT mapping for Target Block
 Tmap = [ 
-    ['TARGET', 'name'],  
-    ['RA', 'lon'],  
-    ['DEC', 'lat'],  
-    ['PMRA', 'lonPm'],  
-    ['PMDEC', 'latPm'],  
-    ['COORDSYS', 'equinoxDesc'],  
-    ['EPOCH', 'epoch'],  
+    ['TARGET', 'name'],
+    ['RA', 'lon'],
+    ['DEC', 'lat'],
+    ['PMRA', 'lonPm'],
+    ['PMDEC', 'latPm'],
+    ['NAIFID', 'naifID'],
+    ['COORDSYS', 'equinoxDesc'],
+    ['EPOCH', 'epoch'], 
     # add these to Target Info block
-    ['SOURCETYPE', 'SourceType'],  
-    ['VMAG', 'VisibleMagnitude'],  
-    ['VWAVE', 'VisibleWavelength'],  
-    ['IRFLUX', 'IRFlux'],  
-    ['IRUNIT', 'IRFluxUnit'],  
+    ['SOURCETYPE', 'SourceType'],
+    ['VMAG', 'VisibleMagnitude'],
+    ['VWAVE', 'VisibleWavelength'],
+    ['IRFLUX', 'IRFlux'],
+    ['IRUNIT', 'IRFluxUnit'],
     ['IRWAVE', 'IRWavelength']]
 
 #KEYS_LIST = [x for x in zip(*(Tmap+Imap))]
@@ -606,11 +613,20 @@ def get_target_data(request):
         target['DEC'] = '0.0'
         target['PMRA'] = 'UNKNOWN'
         target['PMDEC'] = 'UNKNOWN'
+        try:
+            target['NAIFID'] = request.target.ephemeris.naifID.text
+        except:
+            target['NAIFID'] = None
         target['COORDSYS'] = 'J2000'
         target['EPOCH'] = '2000.0'
+    else:
+        if 'NAIFID' in target:
+            del target['NAIFID']
+        if 'NAIFID' in extra_data:
+            del extra_data['NAIFID']
     # combine extra_data with target only if target info is None
     target.update({k:v for k,v in extra_data.items() if target[k] is None})
-    
+
     return target, cfg
 
 def replace_badchar(string):
@@ -776,11 +792,19 @@ def FO_clean_aor(requests):
             t['DEC'] = '0.0'
             t['PMRA'] = 'UNKNOWN'
             t['PMDEC'] = 'UNKNOWN'
+            try:
+                t['NAIFID'] = request.target.ephemeris.naifID.text
+            except:
+                t['NAIFID'] = None
             t['COORDSYS'] = 'J2000'
             t['EPOCH'] = '2000.0'
+        else:
+            if 'NAIFID' in t:
+                del t['NAIFID']
+            if 'NAIFID' in e:
+                del e['NAIFID']
         # combine extra_data with target only if target info is None
         t.update({k:v for k,v in e.items() if t[k] is None})
-
     return targets[0], instr
 
 
