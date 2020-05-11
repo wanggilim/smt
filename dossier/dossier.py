@@ -87,7 +87,7 @@ def get_raw_AORs(flightid, odir,
         refresh_cache (bool): If True, refresh data from DCS.  If False, use cache first.
         proposal (bool): If True, download proposal pdf.
         local (str): str or Path to local .mis file.
-
+    
     Returns:
         mis (list): MIS list of dict legs.
     
