@@ -1077,8 +1077,12 @@ class DCS(object):
             try:
                 #cfile = list(Path(local).glob('%s*.mis'%flightid))[0]
                 cfile = list(Path(local).glob('**/%s*.misxml'%flightid))
-                if not cfile:
-                    cfile = list(Path(local).glob('%s*.mis'%flightid))[0]
+                if not cfile or len(cfile) == 0:
+                    cfile = list(Path(local).glob('%s*.mis'%flightid))
+                    if not cfile or len(cfile) == 0:
+                        raise ValueError('FlightID not found')
+                    else:
+                        cfile = cfile[0]
                 else:
                     cfile = cfile[0]
             except IndexError:
