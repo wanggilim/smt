@@ -3,6 +3,7 @@ from jinja2 import Environment, Template, FileSystemLoader
 import os.path
 from astropy.table import Table,unique,MaskedColumn
 from io import StringIO
+from copy import deepcopy
 #from aladin import Aladin
 from astropy.wcs import WCS
 from astropy.coordinates import SkyCoord
@@ -666,6 +667,8 @@ def generate_overview_tex(overview, metakeys=('header','footer')):
 def make_details(tab, tex=True, faor=False):
     '''Make observation details'''
 
+    tab = deepcopy(tab)
+
     if tab[0]['aorID'] in ('99_9999_99','--'):
         return ''
 
@@ -1313,6 +1316,7 @@ def generate_overlay(row,nod=True,dithers=True,FIFI_label=None):
         mode = 'C2N'
     else:
         mode = 'TOT' if mode == 'TOTAL_INTENSITY' else 'POL'
+        #mode = 'TOT' if mode == 'TOTAL_INTENSITY' or row['ObsPlanMode'] == 'OTFMAP' else 'POL'
 
     label = '%s_%s'%(band,mode)
     try:
@@ -1346,6 +1350,7 @@ def generate_overlay(row,nod=True,dithers=True,FIFI_label=None):
     else:
         # HAWC and FORCAST
         width,height = [f*u.arcmin for f in fov]
+
         name = '%s %s' % (row['Name'],coord.to_string('hmsdms',precision=2,sep=':'))
 
         split = True if mode == 'TOT' and label in FOV else False
@@ -1435,12 +1440,14 @@ def generate_overlay(row,nod=True,dithers=True,FIFI_label=None):
 
 
         else:
-            ampx,ampy = u.Quantity(row['ScanAmplitudeEL'],u.arcsec), \
-                        u.Quantity(row['ScanAmplitudeXEL'],u.arcsec)
+            # total scan throw is twice the amplitude
+            ampx,ampy = 2*u.Quantity(row['ScanAmplitudeEL'],u.arcsec), \
+                        2*u.Quantity(row['ScanAmplitudeXEL'],u.arcsec)
             ampx += width
             ampy += height
             overlay['dithers'] = [make_box(coord,ampx,ampy,roll,TARFoffset,label=label,name=name,
-                                           color=COLORS[row['cidx']%len(COLORS)],scan=True,reglabel='scan',
+                                           color=COLORS[row['cidx']%len(COLORS)],
+                                           scan=True,reglabel='scan',
                                            aorid=row['aorID'])]
 
         overlay['aorID'] = row['aorID']
@@ -1637,16 +1644,33 @@ def make_figures(table,fdir,reg=False,guidestars=None,irsurvey=None,savefits=Fal
     if reg:
         regs = deque()
         for row in table:
-            reg = row['overlay'].get('reg')
+            try:
+                reg = row['overlay'].get('reg')
+            except AttributeError:
+                reg = deque()
+                for o in row['overlay']:
+                    r = o.get('reg')
+                    if isinstance(r,str):
+                        reg.append(r)
+                    else:
+                        reg.extend(r)
+                #reg = [o.get('reg') for o in row['overlay']]
+
             if isinstance(reg,str):
                 reg = [reg]
             if reg:
                 regs.extend(reg)
-            if row['overlay'].get('dithers'):
-                dithreg = [d.get('reg') for d in row['overlay']['dithers'] if d.get('reg')]
-                if dithreg:
-                    regs.extend(dithreg)
-                
+            try:
+                if row['overlay'].get('dithers'):
+                    dithreg = [d.get('reg') for d in row['overlay']['dithers'] if d.get('reg')]
+                    if dithreg:
+                        regs.extend(dithreg)
+            except AttributeError:
+                for o in row['overlay']:
+                    dithreg = [d.get('reg') for d in o['dithers'] if d.get('reg')]
+                    if dithreg:
+                        regs.extend(dithreg)
+
         regs = [DS9Parser(r).shapes.to_regions()[0] for r in set(list(regs))]
         if guidestars is not None:
             regs += gregs
