@@ -4,7 +4,11 @@ This package contains a series of convenience functions for accessing SOFIA DCS 
 
 Currently, the supported instruments are HAWC+, FORCAST, and FIFI-LS (partially).
 
-## Usage
+## `sof-dossier`
+
+Generate dossiers from flight/series ID
+
+### Usage
 
 Run the dossier program as:
 
