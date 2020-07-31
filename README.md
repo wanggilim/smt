@@ -10,7 +10,60 @@ Run the dossier program as:
 
     sof-dossier -h
 
-  This will print a help menu.  The most basic mode is the following:
+  This will print the help menu:
+  
+```
+usage: sof-dossier [-h] [-v VERSION] [-o O] [-r] [-c] [--faor] [--sct] [--pos]
+                   [-fpi] [-sio] [-preserve] [-local LOCAL] [-cfg CFG]
+                   [-alias ALIAS ALIAS] [-s] [-spdf] [-se] [-reg] [-nowrite]
+                   [-sf] [-irs IRSURVEY] [-mcfg MCFG] [-t TEMPLATE] [-nf]
+                   flightid
+
+Generate dossiers from flight ID
+
+positional arguments:
+  flightid              Flight ID. Can be a single flight (201809_HA_KEANU),
+                        or a flight series (e.g. 201809_HA).
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -v VERSION, --version VERSION
+                        Specify Rev number/letter
+  -o O                  Output directory (default=flight series)
+  -r, --refresh-cache   Force update from DCS
+  -c, --compile         Compile tex to pdf
+  --faor                Populate values from FAORs (FORCAST only)
+  --sct                 Populate values from SCTs (FIFI-LS only)
+  --pos                 Download .pos files
+  -fpi, --show-fpi      Show FPI overlay
+  -sio, --ioinstructions
+                        Override ObsBlk comments with instrument operator
+                        instructions (HAWC+ only)
+  -preserve, --preserve-comments
+                        Preserve comments from existing .tex file, if it
+                        exists
+  -local LOCAL          Specify local directory for .mis files, else query DCS
+  -cfg CFG              Specify .cfg file for additional options
+  -alias ALIAS ALIAS    Alias obsblocks (e.g. blk1 is blk2)
+  -s, --save-aors       Save AORs to mission folder
+  -spdf, --save-pdf     Save AORs and proposal pdfs to mission folder
+  -se, --save-aors-exit
+                        Save AORs to mission folder and exit without
+                        generating dossier
+  -reg, --save-regs     Save region files to mission folder
+  -nowrite, --no-write  Do not [over]write .tex file.
+  -sf, --save-fits      Save .fits files of fields.
+  -irs IRSURVEY, --ir-survey IRSURVEY
+                        Save .fits files of specified IR survey. Requires
+                        --save-fits options.
+  -mcfg MCFG            Model config file (default=/library/path/DBmodels.cfg)
+  -t TEMPLATE, --template TEMPLATE
+                        Template file (default=dossier/template.tex)
+  -nf, --no-figure      Do not make figures
+```
+
+
+The most basic mode is the following:
 
     sof-dossier 201909_HA_FARUQ
 
@@ -42,7 +95,7 @@ This will grab all the flights associated with that flight series.
 
   This will attempt to find the .misxml (or legacy .mis) files in the local directory specified, and then query DCS for the .aor files.
 
-   Finally, there are a few options that can be overridden with a config file.  An example is attached, and can be run as:
+   Finally, there are a few options that can be overridden with a config file.  An example .cfg file is attached, and can be imported as follows:
 
     sof-dossier 201909_HA -v A -cfg 201909_HA.cfg
 
@@ -62,7 +115,7 @@ This will grab all the flights associated with that flight series.
 - Leg7_GAVIN_OB_07_0225_01
 - Leg7_GAVIN_07_0225_1
 
-  The options include:
+  The .cfg options include:
 
 - width:  Width of the figure in degrees (default=0.4).
 - height:  Height of the figure in degrees (default=0.4).
@@ -73,5 +126,4 @@ This will grab all the flights associated with that flight series.
 - vmin:  Override aplpy's default vmin for the image.
 - vmax:  Override aplpy's default vmax for the image.
 - invert: If 'false' or 'no', do not invert the colorscale (default is 'true': black on white).
-
 
