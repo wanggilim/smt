@@ -339,6 +339,9 @@ class DCS(object):
             obstabs = [self.getObsBlockSearch(planid=p) for p in plans]
             obstabs = vstack(obstabs)
             # make lookup
+            if 'aorID' not in obstabs.colnames:
+                return rows
+
             blkdict = dict(zip(obstabs['aorID'],obstabs['ObsBlkID']))
             # add blkid to rows
             for row in rows:
