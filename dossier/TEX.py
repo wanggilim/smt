@@ -205,7 +205,7 @@ def make_box(center, width, height, angle=0*u.deg, TARFoffset=0*u.deg,label=None
              linewidth=2, color='#ff0000',name=None,split=False,**kwargs):
     '''Generate box overlay'''
     if split:
-        # split is for the HAWC+ R0/R1 gap
+        # split is for the HAWC+ R0/R1 gap and for FORCAST slit
         try:
             splitgap = PIXSIZE[label]*u.arcsec
         except KeyError:
@@ -241,15 +241,22 @@ def make_box(center, width, height, angle=0*u.deg, TARFoffset=0*u.deg,label=None
                 splitgap = PIXSIZE['FORCAST_GSM']*u.arcsec
             else:
                 splitgap = PIXSIZE['FORCAST_IMG']*u.arcsec
-        r_width = width/2
-        boxangle = (np.arctan2(height,width).to(u.deg)+90*u.deg)/2
+        r_width = (width/4) - (splitgap*2)
+        #boxangle = (np.arctan2(height,width).to(u.deg)+90*u.deg)/2
+        
         offset = angle + TARFoffset
         # keep boresite at R0 center for HAWC+
         if 'TOT' in label:
-            center = center.directional_offset_by(-90*u.deg+offset,r_width/2-splitgap*2)
+            #center = center.directional_offset_by(-90*u.deg+offset,r_width/2-splitgap*2)
+            center = center.directional_offset_by(-90*u.deg+offset, r_width)
+
+        scanangle = kwargs.get('scanangle', None)
+        scanamp = kwargs.get('scanamp', None)
             
         return make_box(center,width,height,angle,TARFoffset,label,
-                        linewidth,color,name,split=False,scan=False,reglabel='_scan')
+                        linewidth,color,name,split=False,scan=False,
+                        scanangle=scanangle,scanamp=scanamp,
+                        reglabel='_scan')
 
     else:
         diag = np.hypot(width/2,height/2)
@@ -257,13 +264,45 @@ def make_box(center, width, height, angle=0*u.deg, TARFoffset=0*u.deg,label=None
 
         offset = angle + TARFoffset
 
-        tl = center.directional_offset_by( boxangle+offset,diag)
-        tr = center.directional_offset_by(-boxangle+offset,diag)
-        bl = center.directional_offset_by(-(180*u.deg+boxangle)+offset,diag)
-        br = center.directional_offset_by( 180*u.deg+boxangle+offset,diag)
+        if kwargs.get('scanangle') and kwargs.get('scanamp'):
+            scanangle = kwargs['scanangle']
+            ampx,ampy = kwargs['scanamp']
 
-        box = (tl,tr,br,bl,tl)
-        box = np.array([[coord.ra.value,coord.dec.value] for coord in box])
+            # initial rotated FOV
+            tl = center.directional_offset_by( boxangle+offset,diag)
+            tr = center.directional_offset_by(-boxangle+offset,diag)
+            bl = center.directional_offset_by(-(180*u.deg+boxangle)+offset,diag)
+            br = center.directional_offset_by( 180*u.deg+boxangle+offset,diag)
+
+            # get max displacements for each corner
+            points = deque((tl,tr,bl,br))
+            for corner in (tl,tr,bl,br):
+                corner0 = corner.directional_offset_by(scanangle, ampx)
+                corner1 = corner.directional_offset_by(scanangle + 90*u.deg, ampy)
+                corner2 = corner.directional_offset_by(scanangle + 180*u.deg, ampx)
+                corner3 = corner.directional_offset_by(scanangle + 270*u.deg, ampy)
+                corner4 = corner.directional_offset_by(scanangle, ampy)
+                corner5 = corner.directional_offset_by(scanangle + 90*u.deg, ampx)
+                corner6 = corner.directional_offset_by(scanangle + 180*u.deg, ampy)
+                corner7 = corner.directional_offset_by(scanangle + 270*u.deg, ampx)
+                points.extend((corner0,corner1,corner2,corner3,
+                               corner4,corner5,corner6,corner7))
+            mpoints = MultiPoint([(p.ra.value,p.dec.value) for p in points])
+            hull = mpoints.minimum_rotated_rectangle
+            #hull = mpoints.convex_hull
+            box = np.array(tuple(zip(*hull.exterior.coords.xy)))
+            
+        else:
+            # initial rotated FOV
+            tl = center.directional_offset_by( boxangle+offset,diag)
+            tr = center.directional_offset_by(-boxangle+offset,diag)
+            bl = center.directional_offset_by(-(180*u.deg+boxangle)+offset,diag)
+            br = center.directional_offset_by( 180*u.deg+boxangle+offset,diag)
+
+            box = (tl,tr,br,bl,tl)
+            box = np.array([[coord.ra.value,coord.dec.value] for coord in box])
+
+        
         boxdict = {'box':[box],'linewidth':linewidth,'color':color,
                    'center':center,'label':label,'name':name}
 
@@ -1440,15 +1479,25 @@ def generate_overlay(row,nod=True,dithers=True,FIFI_label=None):
 
 
         else:
+            # in hawc scanning mode, we have to redraw the final box size
+            #  based on the scan angles relative to N
             # total scan throw is twice the amplitude
-            ampx,ampy = 2*u.Quantity(row['ScanAmplitudeEL'],u.arcsec), \
-                        2*u.Quantity(row['ScanAmplitudeXEL'],u.arcsec)
+            ampx,ampy = 2 * u.Quantity(row['ScanAmplitudeEL'],u.arcsec), \
+                        2 * u.Quantity(row['ScanAmplitudeXEL'],u.arcsec)
             ampx += width
             ampy += height
+
+            # comment out the above two lines to use scanangles, and change width and height
+
             overlay['dithers'] = [make_box(coord,ampx,ampy,roll,TARFoffset,label=label,name=name,
                                            color=COLORS[row['cidx']%len(COLORS)],
-                                           scan=True,reglabel='scan',
-                                           aorid=row['aorID'])]
+                                           scan=True,reglabel='scan',scanangle=None,
+                                           aorid=row['aorID'],scanamp=(ampx,ampy))]
+            
+            #overlay['dithers'] = [make_box(coord,width,height,roll,TARFoffset,label=label,name=name,
+            #                               color=COLORS[row['cidx']%len(COLORS)],
+            #                               scan=True,reglabel='scan',scanangle=None,
+            #                               aorid=row['aorID'],scanamp=(ampx,ampy))]
 
         overlay['aorID'] = row['aorID']
         overlay['InstrumentName'] = row['InstrumentName']
