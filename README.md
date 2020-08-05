@@ -99,7 +99,7 @@ The most basic mode is the following:
 
   This will refresh the cache with the latest `.misxml` and `.aor` files.
 
-Running these commands will generate a folder structure in the current directory as 201909_HA/FARUQ.  Inside is the `.tex` file and figure `.pdf` files.
+Running these commands will generate a folder structure in the current directory as 201909_HA/FARUQ.  Inside are the `.tex` file and figure `.pdf` files for the dossier.
 
    If you want more control over versions, it is sensible to add a version letter or number like so:
 
