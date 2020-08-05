@@ -19,13 +19,13 @@ If you have previously installed this toolbox, run `sof-refresh` immediately fol
 
 The install procedure should add all of the following programs to your `PATH` variable:
 
-- [`sof-dossier`](#sof-dossier):  Generate dossiers from flight/series ID.
-- `sof-planner`:  Generate FORCAST `.faor` files.
-- `aor2faor`:  Convert local `.aor` files to `.faor` for FORCAST.
-- `sof-itime`:  FORCAST integration time efficiency calculator.
-- `sof-aor`:  Utility program to download `.aor` and proposal `.pdf` files to a local directory.
-- `sof-cache`:  Utility program for pre-caching all necessary files for `sof-dossier`, `sof-planner`, or `sof-aor`.
-- `sof-refresh`:  Force refresh of local database from previously-cached DCS files.
+- [`sof-dossier`](#markdown-header-sof-dossier):  Generate dossiers from flight/series ID.
+- [`sof-planner`](#markdown-header-sof-planner):  Generate FORCAST `.faor` files.
+- [`aor2faor`](#markdown-header-aor2faor):  Convert local `.aor` files to `.faor` for FORCAST.
+- [`sof-itime`](#markdown-header-sof-itime):  FORCAST integration time efficiency calculator.
+- [`sof-aor`](#markdown-header-sof-aor):  Utility program to download `.aor` and proposal `.pdf` files to a local directory.
+- [`sof-cache`](#markdown-header-sof-cache):  Utility program for pre-caching all necessary files for `sof-dossier`, `sof-planner`, or `sof-aor`.
+- [`sof-refresh`](#markdown-header-sof-refresh):  Force refresh of local database from previously-cached DCS files.
 
 Documentation for each of these programs is described below.  All of them have a help menu that appears with the addition of the `-h` command line switch.
 
