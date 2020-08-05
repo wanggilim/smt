@@ -214,6 +214,8 @@ optional arguments:
   -r, --refresh-cache   Force update from DCS
 ```
 
+### Description
+
 When run, this program downloads `.aor` and `.misxml` files from DCS (unless already stored in the local cache from a previous `sof-planner` or `sof-dossier` run), and attempts to automatically produce corresponding `.faor` files for each leg in a flight/flight series.  Once complete, the configurations in the `.faor` files can be incorporated into the dossiers by running `sof-dossier` with the `--faor` switch.
 
 Many of the arguments for this program are the same as `sof-dossier`.  Notably, the only required argument is a flight series, or single flight plan.  Perhaps obviously, the flight ID should correspond toa FORCAST flight series (_FO).  Similarly to the dossier program, the `-local` flag can be used to point to series `.misxml` files that have been downloaded locally, rather than pulling from DCS.  Also, the `-r` flag can be used to pull fresh `.aor` and `.misxml` files from DCS and update the local cache.
@@ -251,6 +253,8 @@ optional arguments:
   -h, --help  show this help message and exit
   -o outdir   Output directory (default='.')
 ```
+
+### Description
 
 This program converts `.aor` files with FORCAST AORs into basic `.faor` files.  The output corresponds to `sof-planner` with the `--basic` flag, i.e. FAORs with no optimization.
 
@@ -292,7 +296,9 @@ optional arguments:
   -filtchange FILTCHANGE
                         Filter change overhead in sec (default=30)
   -lost LOST            Additional overhead in sec (default=25)
-  ```
+```
+
+### Description
 
 This program allows for manually iterating through a sequence of noddwells, repeats, rewinds, etc. to achieve a desired total integration time or total AOR execution time.  This is helpful for planning observations where ROF rates/leg lengths are a concern on timing.  The `sof-planner` program uses the timing and efficiency from this calculator to estimate an optimal solution.
 
