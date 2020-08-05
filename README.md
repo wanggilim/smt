@@ -107,7 +107,7 @@ Running these commands will generate a folder structure in the current directory
 
   which will instead create 201909_HA_vA/FARUQ.
 
-You can also do an entire flight series in one shot, but leaving off the specific flight name:
+You can also do an entire flight series in one shot by leaving off the specific flight name:
 
     sof-dossier 201909_HA -v A
 
