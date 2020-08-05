@@ -19,7 +19,7 @@ The install procedure should add all of the following programs to your `PATH` va
 
 - `sof-dossier`:  Generate dossiers from flight/series ID.
 - `sof-planner`:  Generate FORCAST `.faor` files.
-- `aor2faor`:  Conver local `.aor` files to `.faor` for FORCAST.
+- `aor2faor`:  Convert local `.aor` files to `.faor` for FORCAST.
 - `sof-itime`:  FORCAST integration time efficiency calculator.
 - `sof-aor`:  Utility program to download `.aor` and proposal `.pdf` files to a local directory.
 - `sof-cache`:  Utility program for pre-caching all necessary files for `sof-dossier`, `sof-planner`, or `sof-aor`.
