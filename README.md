@@ -15,9 +15,11 @@ The necessary dependencies should download and install automatically, but if not
 
 If you have previously installed this toolbox, run `sof-refresh` immediately following the install.
 
+## Programs
+
 The install procedure should add all of the following programs to your `PATH` variable:
 
-- `sof-dossier`:  Generate dossiers from flight/series ID.
+- [`sof-dossier`](#sof-dossier):  Generate dossiers from flight/series ID.
 - `sof-planner`:  Generate FORCAST `.faor` files.
 - `aor2faor`:  Convert local `.aor` files to `.faor` for FORCAST.
 - `sof-itime`:  FORCAST integration time efficiency calculator.
