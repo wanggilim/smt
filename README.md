@@ -40,7 +40,7 @@ Run the dossier program as:
 
     sof-dossier -h
 
-```
+```bash
 usage: sof-dossier [-h] [-v VERSION] [-o O] [-r] [-c] [--faor] [--sct] [--pos]
                    [-fpi] [-sio] [-preserve] [-local LOCAL] [-cfg CFG]
                    [-alias ALIAS ALIAS] [-s] [-spdf] [-se] [-reg] [-nowrite]
