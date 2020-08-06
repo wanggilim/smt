@@ -1158,21 +1158,23 @@ def main():
 
             for row in iTab:
                 # generate paramtable for each interval (just one if interval == 0)
-                paramtable = plan_obsblock(leg['ObsBlkID'],mis,
-                                           legno=leg['Leg'],
-                                           niter=args.niter,
-                                           multiprocess=args.debug,
-                                           los_buffer=args.losbuffer,
-                                           basic=args.basic,
-                                           quick=args.quick,
-                                           config=cfg,
-                                           ROF=row['ROF'],
-                                           rofrate=rofrate if rofrate else row['ROFrt'],
-                                           label=row['label'],
-                                           dcs=dcs,refresh_cache=args.refresh_cache,
-                                           fixed=args.fixed,
-                                           allaorids=args.allaors,
-                                           **kwargs)
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore')
+                    paramtable = plan_obsblock(leg['ObsBlkID'],mis,
+                                               legno=leg['Leg'],
+                                               niter=args.niter,
+                                               multiprocess=args.debug,
+                                               los_buffer=args.losbuffer,
+                                               basic=args.basic,
+                                               quick=args.quick,
+                                               config=cfg,
+                                               ROF=row['ROF'],
+                                               rofrate=rofrate if rofrate else row['ROFrt'],
+                                               label=row['label'],
+                                               dcs=dcs,refresh_cache=args.refresh_cache,
+                                               fixed=args.fixed,
+                                               allaorids=args.allaors,
+                                               **kwargs)
                 
                 if paramtable is None:
                     # invalid leg
