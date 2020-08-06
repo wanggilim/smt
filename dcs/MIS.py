@@ -139,7 +139,10 @@ def get_legs(filename):
 
         # add final leg
         fleg = LEG_APPROACH_RE.findall(text)[0]
-        fleg,futc_tab = fleg.split('UTC')
+        try:
+            fleg,futc_tab = fleg.split('UTC')
+        except ValueError:
+            fleg,futc_tab = fleg.split('UTC')[0],fleg.split('UTC')[-1]
         futc_tab = 'UTC%s'%futc_tab
 
         legs.append(fleg)
