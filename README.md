@@ -168,7 +168,7 @@ Run the planner program as:
 
     sof-planner -h
 
-```
+```bash
 usage: sof-planner [-h] [-niter NITER] [--basic] [--quick]
                    [-losbuffer LOSBUFFER] [--debug] [-leg LEG]
                    [-interval INTERVAL] [--allaors] [-alias ALIAS ALIAS]
@@ -243,7 +243,7 @@ Run the aor translator program as:
 
     aor2faor -h
 
-```
+```bash
 usage: aor2faor [-h] [-o outdir] aors [aors ...]
 
 AOR to FAOR translator
@@ -271,7 +271,7 @@ Run the calculator as:
 
 	sof-itime -h
 	
-```
+```bash
 usage: sof-itime [-h] [-loops LOOPS] [-chopeff CHOPEFF] [--c2nc2] [--nxcac]
                  [-nodtime NODTIME] [-dithertime DITHERTIME]
                  [-filtchange FILTCHANGE] [-lost LOST]
@@ -314,7 +314,7 @@ Run the utility as:
 
 	sof-aor -h
 
-```
+```bash
 usage: sof-aor [-h] [-o O] [-pdf] [-r] planids [planids ...]
 
 Download AORs locally
@@ -345,7 +345,7 @@ Run the utility as:
 
 	sof-cache -h
 
-```
+```bash
 usage: sof-cache [-h] [-local LOCAL] [-alias ALIAS ALIAS] [-mcfg MCFG]
                  ids [ids ...]
 
@@ -375,7 +375,7 @@ Run this helper utility as:
 
 	sof-refresh -h
 
-```
+```bash
 usage: sof-refresh [-h] [-mcfg MCFG]
 
 Force refresh of smt.db file from local cache
@@ -399,7 +399,7 @@ Run this program as:
 
 	sof-obsmaker -h
 
-```
+```bash
 usage: sof-obsmaker [-h] [-leg LEG] [-alias ALIAS ALIAS] [-o O] [-v VERSION]
                     [-local LOCAL] [-ocfg OCFG] [-mcfg MCFG] [-r]
                     flightid
